@@ -1,1 +1,1 @@
-GitHub template for quickly spinning up organized repos
+Predict for profile at any given MVC level from motor neuron activations
