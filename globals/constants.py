@@ -1,0 +1,1 @@
+logging = ['info', 'success', 'warn', 'error'] # select forms of logging (info, warn, error, success)

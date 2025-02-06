@@ -1,0 +1,1 @@
+This directory handles prediction modules and pipelines. It processes cleaned motor neuron data to predict force profiles using machine learning models.
