@@ -302,8 +302,8 @@ class Conversion:
         for subject, levels in data.items():
             for mvc_level, trials in levels.items():
                 for trial_number, datums in trials.items():
-                    mvc_data = datums["mvc"] if "mvc" in datums else None
+                    neuron_data = datums["mvc"] if "mvc" in datums else None
                     force_data = datums["force"] if "force" in datums else None
-                    entries.append([subject, mvc_level, trial_number, mvc_data, force_data])
+                    entries.append([subject, mvc_level, trial_number, neuron_data, force_data])
 
-        return pd.DataFrame(entries, columns=["subject", "mvc_level", "trial_number", "mvc_data", "force_data"])
+        return pd.DataFrame(entries, columns=["subject", "mvc_level", "trial_number", "neuron_data", "force_data"])
