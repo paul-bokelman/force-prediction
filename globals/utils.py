@@ -2,6 +2,7 @@ from termcolor import colored
 import globals.constants as constants
 
 class Log:
+    """Project wide logging utility."""
     @staticmethod
     def info(message):
         if 'info' not in constants.logging:
