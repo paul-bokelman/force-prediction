@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Optional
 from numpy.typing import NDArray
 from sanitization.types import DataTypeKeys, UnifiedSubjectData
 import os
@@ -12,16 +12,17 @@ from globals.utils import Log
 class Conversion:
     """Converts and pre-processes the original data files into a format that is easier to work with. The data is cleaned up and converted into a single file present in the designated data directory."""
 
-    def __init__(self, prefix: str) -> None:
+    def __init__(self, prefix: str, subjects: Optional[list[str]] = None) -> None:
         self.prefix = prefix
         self.data_dir = os.path.join(prefix, constants.data_dir)
         self.processed_dir = lambda s: os.path.join(prefix, constants.processed_data_dir(s))
         self.raw_data_dir = lambda s: os.path.join(prefix, constants.raw_data_dir(s))
+        self.subjects = subjects if subjects is not None else os.listdir(self.data_dir)
 
     def cleanup_data(self):
         """Cleans up the data directory by moving all files from the data electrode folder to a raw folder in the subject's directory. All other files and folders in the subject's directory are removed. The subject folder is then renamed to be all lowercase with dashes in place of spaces."""
 
-        for subject in os.listdir(self.data_dir):
+        for subject in self.subjects:
             subject_dir = os.path.join(self.data_dir, subject)
 
             if os.path.isdir(subject_dir):
@@ -180,9 +181,7 @@ class Conversion:
 
     def process_subjects(self):
         """Processes the data by performing some operation on each file in the raw folder of each subject's directory."""
-        subjects = os.listdir(self.data_dir)
-
-        for subject in subjects:
+        for subject in self.subjects:
             Log.info(f"\nProcessing data for {subject}\n")
 
             # skip this subject if the raw folder doesn't exist
@@ -289,10 +288,8 @@ class Conversion:
         """Get all the data from the processed files as a single pandas dataframe."""
         data: dict[str, UnifiedSubjectData] = {}
 
-        subjects = os.listdir(self.data_dir)
-
         # load all the data for each subject
-        for subject in subjects:
+        for subject in self.subjects:
             subject_data = self._load_subject_data(subject)
             data[subject] = subject_data
 

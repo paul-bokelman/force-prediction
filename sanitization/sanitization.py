@@ -8,9 +8,21 @@ class Sanitization:
     def __init__(self, df: pd.DataFrame):
         self.df = df
 
-    def _purge(self):
-        """Purge the given pandas dataframe of any entries that are not recoverable."""
-        pass
+    def _normalize_and_scale(self):
+        """Normalize and scale the force data to values between 0 and 1."""
+        Log.info("Normalizing data...")
+        
+        # convert negative force values to 0 (reLU)
+        self.df["force_data"] = self.df["force_data"].map(lambda x: np.maximum(x, 0))
+
+        # scale given data to values between 0 and 1
+        def scale(x):
+            return (x - x.min()) / (x.max() - x.min())
+
+        # normalize force to values between 0 and 1
+        self.df["force_data"] = self.df["force_data"].apply(scale)
+
+        Log.success("Data normalized.")
 
     def _purge_insufficient_neuron_data(self):
         """Remove entries that have insufficient number of neurons in the data."""
@@ -44,5 +56,6 @@ class Sanitization:
 
     def sanitize(self):
         """Sanitize the given pandas dataframe with feature-specific methods."""
+        self._normalize_and_scale()
         self._purge_insufficient_neuron_data() # N
         return self.df
