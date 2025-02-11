@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from scipy.ndimage import median_filter
 from globals.utils import Log
 import sanitization.constants as constants
 
@@ -26,6 +27,7 @@ class Sanitization:
 
     def _compute_global_statistics(self):
         """Computes various data-wide statistics for sanitization purposes."""
+        Log.info(f"Computing global statistics...")
 
         # compute global average firing distance across all neuron sets
         firing_distances = []
@@ -34,6 +36,8 @@ class Sanitization:
                 firing_distances.append(self._compute_average_max_firing_distance(neuron_set))
             
         self.average_firing_distance = np.mean(firing_distances) # average firing distance across all neuron sets
+        Log.info(f"Global average firing distance: {self.average_firing_distance}")
+        Log.success("Global statistics computed.")
 
     def _normalize_and_scale(self):
         """Normalize and scale the force data to values between 0 and 1."""
@@ -65,21 +69,25 @@ class Sanitization:
 
         Log.success(f"Purged {prev_len - len(self.df)} entries with insufficient neuron data. {len(self.df)} entries remaining.")
 
-    def _check_spikes(self):
-        """Check if there are any major force spikes in the data."""
-        pass
+    def _smooth_force_spikes(self):
+        """Smooth out force spikes in the data."""
+        Log.info("Checking for force spikes...")
+
+        # apply median_filter with large window to smooth out force spikes
+        self.df['force_data'] = [median_filter(x, size=constants.spike_smoothing_window) for x in self.df['force_data']]
+        
+        Log.success(f"Processed force spikes in {len(self.df)} entries.")
 
     def _purge_neuron_inconsistencies(self):
         """Check if there are any outlandish inconsistencies in the neuron data."""
         Log.info("Purging entries with inconsistent neuron data...")
-        Log.info(f"Global average firing distance: {self.average_firing_distance}")
 
         def filter_by_firing_distance(neuron_data: np.ndarray) -> bool:
             """Filter function to check if the average firing distance is within a certain threshold of the global average."""
             neuron_avg_firing_distance = self._compute_average_max_firing_distance(neuron_data)
 
-            # no data or average distance is less than 1.5 times the global average -> keep the entry
-            if neuron_data is None or neuron_avg_firing_distance < self.average_firing_distance * 1.5:
+            # no data or average distance is less than 2 times the global average -> keep the entry
+            if neuron_data is None or neuron_avg_firing_distance < self.average_firing_distance * 2:
                 return True
 
             return False
@@ -114,8 +122,9 @@ class Sanitization:
 
     def sanitize(self):
         """Sanitize the given pandas dataframe with feature-specific methods."""
-        self._normalize_and_scale()
         self._purge_insufficient_neuron_data() # N
         self._purge_neuron_inconsistencies() # NI
+        self._smooth_force_spikes() # S
+        self._normalize_and_scale()
         return self.df
     

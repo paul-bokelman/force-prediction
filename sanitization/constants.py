@@ -5,6 +5,7 @@ mvc_levels = [5, 10, 20, 40, 60, 100] # the total list of mvc levels to be consi
 
 # ------------------------------- sanitization ------------------------------- #
 min_neurons = 6 # minimum number of neurons required for a trial to be considered valid (N)
+spike_smoothing_window = 5000 # the window size for the median filter used to smooth the spike data
 
 # -------------------------------- conversion -------------------------------- #
 data_dir = "data" # directory containing all subject data

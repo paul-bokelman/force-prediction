@@ -1,1 +1,1 @@
-Machine learning model and data pipeline for predicting profile at any given MVC level from motor neuron activations
+Machine learning model and data pipeline for predicting force profile (disregarding magnitude) at any given MVC level from motor neuron activations

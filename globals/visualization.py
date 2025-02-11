@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import globals.constants as constants
 
-def visualize_trial(df: pd.DataFrame, subject: str, trial_number: int, mvc_level: int, output: Optional[str] = None):
+def visualize_trial(df: pd.DataFrame, subject: str, mvc_level: int, trial_number: int, output: Optional[str] = None):
     """Plot grid of raster plots with force overlays for a given trial"""
         
     # filter data for the given subject, trial, and mvc level
