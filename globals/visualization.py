@@ -5,14 +5,22 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import globals.constants as constants
 
-def visualize_trial(df: pd.DataFrame, subject: str, mvc_level: int, trial_number: int, output: Optional[str] = None):
-    """Plot grid of raster plots with force overlays for a given trial"""
+def visualize_trial(
+        df: pd.DataFrame, 
+        subject: str, 
+        mvc_level: int, 
+        trial_number: int, 
+        output: Optional[str] = None, 
+        vmarkers: Optional[list[float]] = None, 
+        hmarkers: Optional[list[float]] = None,
+    ) -> None:
+    """Plot grid of raster plots with force overlays for a given trial. Optionally save the plot to a file and or apply markers."""
         
     # filter data for the given subject, trial, and mvc level
     trial = df[(df["subject"] == subject) & (df["trial_number"] == trial_number) & (df["mvc_level"] == mvc_level)].iloc[0]
 
     # setting up the plot
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(18, 6))
     plt.title(f"{trial["subject"]} | Trial {trial["trial_number"]} | {trial["mvc_level"]}% MVC")
     plt.ylabel("Motor Neuron")
     plt.xlabel("Time (s)")
@@ -31,9 +39,9 @@ def visualize_trial(df: pd.DataFrame, subject: str, mvc_level: int, trial_number
             plt.plot(time_values, neuron_data, '|')
             
         # Sort and plot neurons based on first spike time
-        neuron_order = np.argsort(np.argmax(neuron_data, axis=0))
-        sorted_data = neuron_data[:, neuron_order]
-        for i, neuron in enumerate(sorted_data.T):
+        neuron_order = np.argsort(np.argmax(neuron_data, axis=1))
+        sorted_data = neuron_data[neuron_order]
+        for i, neuron in enumerate(sorted_data):
             plt.plot(time_values, neuron * (i + 1), '|')
 
     def plot_force_overlay(force_data: np.ndarray, time_values: np.ndarray, force_axis: Axes):
@@ -52,8 +60,8 @@ def visualize_trial(df: pd.DataFrame, subject: str, mvc_level: int, trial_number
         return
 
     # setup for combined plot
-    total_time = len(neuron_data) / constants.sampling_frequency
-    time_values = np.linspace(0, total_time, len(neuron_data))
+    total_time = neuron_data.shape[1] / constants.sampling_frequency
+    time_values = np.linspace(0, total_time, neuron_data.shape[1])
     
     # plot the raster representation of the neuron data
     plot_raster(neuron_data, time_values)
@@ -64,5 +72,14 @@ def visualize_trial(df: pd.DataFrame, subject: str, mvc_level: int, trial_number
         force_time = np.linspace(0, total_time, len(force_data))
         plot_force_overlay(force_data, force_time, force_axis)
 
+    # add vertical markers if present
+    if vmarkers:
+        for marker in vmarkers:
+            plt.axvline(marker, color='black', linestyle='--')
+
+    # add horizontal markers if present
+    if hmarkers:
+        for marker in hmarkers:
+            plt.axhline(marker, color='black', linestyle='--')
     if output:
         plt.savefig(output)

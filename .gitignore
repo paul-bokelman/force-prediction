@@ -1,8 +1,8 @@
-sanitization/data/*
+processing/data/*
 __pycache__/
 *.pyc
 todo.md
-sanitization/out/*
+processing/out/*
 test.ipynb
 venv/
 .vscode

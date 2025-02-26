@@ -1,12 +1,12 @@
 from typing import Union, Optional
 from numpy.typing import NDArray
-from sanitization.types import DataTypeKeys, UnifiedSubjectData
+from processing.types import DataTypeKeys, UnifiedSubjectData
 import os
 import shutil
 import numpy as np
 import pandas as pd
 import scipy.io
-import sanitization.constants as constants
+import processing.constants as constants
 from globals.utils import Log
 
 class Conversion:
@@ -119,7 +119,7 @@ class Conversion:
 
         for file in os.listdir(raw_dir):
             if not file.endswith(".mat"):
-                Log.warn(f"Skipping {file} as it is not a .mat file")
+                Log.warn(f"\tSkipping {file} as it is not a .mat file")
                 continue
 
             mvc_level: Union[int, None] = None
@@ -133,18 +133,18 @@ class Conversion:
             force_file_path = os.path.join(processed_dir, f"FORCE.{mvc_level}.{trial_number}.txt")
 
             if mvc_level is None or trial_number is None:
-                Log.error(f"Could not extract MVC level or trial number from {file}")
+                Log.error(f"\tCould not extract MVC level or trial number from {file}")
                 continue
 
             if os.path.exists(mvc_file_path) and os.path.exists(force_file_path):
-                Log.warn(f"Skipping {file} as it has already been processed")
+                Log.warn(f"\tSkipping {file} as it has already been processed")
                 continue
 
             if mvc_level not in constants.mvc_levels:
-                Log.warn(f"Skipping {file} as the MVC level {mvc_level} is not in the list of valid MVC levels")
+                Log.warn(f"\tSkipping {file} as the MVC level {mvc_level} is not in the list of valid MVC levels")
                 continue
 
-            Log.info(f"Processing {file} (MVC: {mvc_level}, Trial: {trial_number})...")
+            Log.info(f"\tProcessing {file} (MVC: {mvc_level}, Trial: {trial_number})...")
 
             raw_data = scipy.io.loadmat(os.path.join(raw_dir, file)) # load the .mat file
 
@@ -153,7 +153,7 @@ class Conversion:
 
             # no MVC data was found and the MVC level is not 100 (only force) -> skip the file
             if len(mvc_data) == 0 and mvc_level != 100:
-                Log.warn(f"Skipping {file} as no MVC data was found")
+                Log.warn(f"\tSkipping {file} as no MVC data was found")
                 continue
             
             force_data = self._convert_mv_to_kgf(raw_data["ref_signal"][0])
@@ -175,19 +175,27 @@ class Conversion:
                         index = int(np.round(firing_time)) # calculate the corresponding index
                         activation_time[index, neuron_index] = firing_time # assign the firing time to the corresponding index
 
-                # save mvc data
-                np.savetxt(mvc_file_path, activation_time)
+                # save transposed mvc data
+                np.savetxt(mvc_file_path, activation_time.T)
 
 
-    def process_subjects(self):
+    def process_subjects(self, replace: bool = False):
         """Processes the data by performing some operation on each file in the raw folder of each subject's directory."""
         for subject in self.subjects:
-            Log.info(f"\nProcessing data for {subject}\n")
+            Log.info(f"\nProcessing data for {subject}")
 
             # skip this subject if the raw folder doesn't exist
             if not os.path.exists(self.raw_data_dir(subject)):
-                Log.warn(f"Skipping {subject} as raw folder does not exist")
+                Log.warn(f"\tSkipping {subject} as raw folder does not exist")
                 continue
+            
+            # replace flag is set -> delete the processed folder if it exists (for reprocessing)
+            if replace:
+                Log.warn("\tReplace flag is set to True. All processed data will be overwritten.")
+
+                # delete the processed folder if it exists
+                if os.path.exists(self.processed_dir(subject)):
+                    shutil.rmtree(self.processed_dir(subject))
             
             # create the 'processed' folder if it doesn't exist
             if not os.path.exists(self.processed_dir(subject)):
@@ -195,7 +203,7 @@ class Conversion:
 
             self._process(subject) # process the subject's data and export to their processed folder
 
-            Log.success(f"Successfully processed data for {subject}")
+            Log.success(f"\tSuccessfully processed data for {subject}")
 
 
     @staticmethod
