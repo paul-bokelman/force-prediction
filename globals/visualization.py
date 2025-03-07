@@ -21,7 +21,7 @@ def visualize_trial(
 
     # setting up the plot
     plt.figure(figsize=(18, 6))
-    plt.title(f"{trial["subject"]} | Trial {trial["trial_number"]} | {trial["mvc_level"]}% MVC")
+    plt.title(f"{trial['subject']} | Trial {trial['trial_number']} | {trial['mvc_level']}% MVC")
     plt.ylabel("Motor Neuron")
     plt.xlabel("Time (s)")
 
@@ -77,9 +77,20 @@ def visualize_trial(
         for marker in vmarkers:
             plt.axvline(marker, color='black', linestyle='--')
 
+    if trial['force_inflection_indices']:
+        for inflection_index in [idx for idx in trial['force_inflection_indices'] if idx is not None]:
+            plt.axvline(inflection_index / constants.sampling_frequency, color='blue', linestyle='-')
+
     # add horizontal markers if present
     if hmarkers:
         for marker in hmarkers:
             plt.axhline(marker, color='black', linestyle='--')
     if output:
         plt.savefig(output)
+
+def visualize_subject(df: pd.DataFrame, subject: str):
+    """Visualize all trials for a given subject"""
+    subject_data = df[df['subject'] == subject]
+    for _, trial in subject_data.iterrows():
+        visualize_trial(df, subject, trial['mvc_level'], trial['trial_number'])
+        plt.show()

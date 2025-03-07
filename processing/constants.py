@@ -6,8 +6,18 @@ mvc_levels = [5, 10, 20, 40, 60, 100] # the total list of mvc levels to be consi
 # ------------------------------- sanitization ------------------------------- #
 min_neurons = 6 # minimum number of neurons required for a trial to be considered valid (N)
 spike_smoothing_window = 500 # the window size for the median filter used to smooth the spike data
-md_flat_region_detection_step = 0.25 # the step percentage for the flat region detection algorithm in the measurement decorrelation handler
-md_flat_region_error_threshold = 0.1 # the pass/fail threshold for identifying flat regions in the measurement decorrelation handler
+md_region_window = 2000 # the window size for region gradient calculation and comparison
+md_median_gradient_scaler = 3 # the scaling factor for the median gradient used in flat region detection
+md_region_tolerance = 0.7 # the relative tolerance for flat region gradient comparison
+md_symmetric_zeros_tolerance = 0.07 # the relative tolerance for areas in symmetries that are close to zero (relative to max value)
+md_mvc_gradient_scaling = {
+    5: 5,
+    10: 3,
+    20: 2,
+    40: 2,
+    60: 2,
+    100: 1
+} # the scaling factor for artificial gradient computation based on mvc level
 
 # -------------------------------- conversion -------------------------------- #
 data_dir = "data" # directory containing all subject data

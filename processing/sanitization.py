@@ -1,11 +1,13 @@
 from typing import Union, Any
 from processing.types import ISIStatistics
+import math
 import pandas as pd
 import numpy as np
 from scipy.ndimage import median_filter
 import globals.constants
 from globals.utils import Log, format_subject
 import processing.constants as constants
+from processing import utils
 
 class Sanitization:
     """Remove or correct any errors in the data. This includes removing outliers, filling in missing values, and correcting any other errors in the data. Some entries are not recoverable and will be "purged"."""
@@ -118,7 +120,7 @@ class Sanitization:
         
         # filter function to check if the number of neurons is valid
         def valid_number_of_neurons(x: np.ndarray) -> bool:
-            return x is not None and x.ndim > 1 and x.shape[1] >= constants.min_neurons
+            return x is not None and x.ndim > 1 and x.shape[0] >= constants.min_neurons
 
         # purge any entries that do not have a valid number of neurons
         self.df = self.df[self.df["neuron_data"].map(valid_number_of_neurons)] 
@@ -174,101 +176,142 @@ class Sanitization:
         
         subjects = self.df['subject'].unique()
 
+        self.df['force_inflection_indices'] = None
+
         # detect measurement decorrelation
         for subject in subjects:
             # trial-wise (full trial neuron set) computation of ISI and CV 
             trials: pd.DataFrame = self.df[self.df['subject'] == subject]
-            for _, trial in trials.iterrows():
+            for index, trial in trials.iterrows():
                 mvc_level, trial_number, neuron_data, force_data = trial["mvc_level"], trial["trial_number"], trial['neuron_data'], trial['force_data']
                 # no neuron data -> purge
                 if neuron_data is None:
                     Log.warn(f"{format_subject(trial)} Neuron data is missing for trial {trial_number} @ {mvc_level}%.")
                     continue
 
-                neuron_stats = self._compute_isi_statistics(neuron_data)
-
-                region_gradients: dict[float, tuple[int, int]] = {}
-
-                # compute mean rate of change for region and append if within 'flat' threshold
-                for step_percentage in range(int(1/constants.md_flat_region_detection_step)):
-                    start_index = int(step_percentage * constants.md_flat_region_detection_step * len(force_data))
-                    end_index = int((step_percentage + 1) * constants.md_flat_region_detection_step * len(force_data))
-                    region = force_data[start_index:end_index if end_index < len(force_data) else len(force_data)]
-                    region_mean_gradient = np.mean(np.gradient(region))
-
-                    region_gradients[region_mean_gradient] = (start_index, end_index)
-                    
-                    # region is relatively flat -> add to flat region intervals
-                    # if abs(0 - np.abs(region_mean_gradient)) <= constants.md_flat_region_error_threshold:
-                    #     Log.info(f"Identified flat region @ {start_index / globals.constants.sampling_frequency} - {end_index / globals.constants.sampling_frequency}: {region_mean_gradient}", trial=trial)
-                    #     flat_region_intervals.append((start_index / globals.constants.sampling_frequency, end_index))
-                
-                # no flat regions -> no leading and trailing MDs can be correct -> warn and skip
-                # if len(flat_region_intervals) == 0:
-                #     Log.warn(f"No flat regions found for trial {trial_number} @ {mvc_level}%")
-                #     continue
-                
-                # Log.debug(f"\tFlat regions: {flat_region_intervals}", trial=trial)
-
-                # compute slopes of rising and falling edges
-
-                # calculate first and second derivatives
-                gradient = np.gradient(force_data)
-                second_derivative = np.gradient(gradient)
-
-                # define thresholds based on gradients, higher threshold -> less likely to be a turning point
-                gradient_threshold = np.mean(np.abs(gradient)) * 0.5 # look for sharp changes in force
-                second_derivative_threshold = np.mean(np.abs(second_derivative)) * 3 # look for very sharp changes in gradient
-
-                # identify potential turning points
-                turning_points = np.where(
-                    (np.abs(second_derivative) > second_derivative_threshold) & 
-                    (np.abs(gradient) < gradient_threshold)
-                )[0]
-
-                # no turning points -> no leading and trailing MDs can be correct -> warn and skip
-                if len(turning_points) == 0:
-                    Log.warn(f"No turning points found for trial {trial_number} @ {mvc_level}%")
-                    continue
+                # neuron_stats = self._compute_isi_statistics(neuron_data)
 
                 # identify the turning points closest to the first and last activations
                 first_activation_index: int = min(np.argmax(neuron_data == 1, axis=1))
                 last_activation_index: int = max(neuron_data.shape[1] - np.argmax(neuron_data[:, ::-1] == 1, axis=1) - 1)
 
-                leading_turn_index: float = turning_points[np.argmin(np.abs(turning_points - first_activation_index))]
-                trailing_turn_index: float = turning_points[np.argmin(np.abs(turning_points - last_activation_index))]
+                # clip leading/trailing force data that has or wil hit zero
+                left_symmetric: np.ndarray = force_data[:int(len(force_data) / 2)]
+                right_symmetric: np.ndarray = force_data[int(len(force_data) / 2):]
 
+                # clip force data below zero
+                np.clip(left_symmetric, a_min=0, a_max=np.inf, out=left_symmetric)
+                np.clip(right_symmetric, a_min=0, a_max=np.inf, out=right_symmetric)
+
+                # find zeros in symmetric regions
+                left_symmetric_zeros = np.where(left_symmetric <= np.max(left_symmetric) * constants.md_symmetric_zeros_tolerance)[0]
+                right_symmetric_zeros = np.where(right_symmetric <= np.max(right_symmetric * constants.md_symmetric_zeros_tolerance))[0]
+
+                # track modifications for additional processing
+                left_symmetric_modified = False
+                right_symmetric_modified = False
+                
+                # clip regions before and after zeros respectively (relative to first and last activation)
+                if left_symmetric_zeros.size > 0:
+                    left_zero_closest_to_activation = left_symmetric_zeros[np.argmin(np.abs(left_symmetric_zeros - first_activation_index))]
+                    left_symmetric[:left_zero_closest_to_activation] = 0
+                    left_symmetric_modified = True
+                if right_symmetric_zeros.size > 0:
+                    right_zero_closest_to_activation = right_symmetric_zeros[np.argmin(np.abs(right_symmetric_zeros + len(left_symmetric) - last_activation_index))]
+                    right_symmetric[right_zero_closest_to_activation:] = 0
+                    right_symmetric_modified = True
+
+                force_data = np.concatenate((left_symmetric, right_symmetric))
+
+                # both regions modified -> skip gradient modification
+                if left_symmetric_modified and right_symmetric_modified:
+                    Log.warn(f"\tBoth regions modified -> Skipping", trial=trial)
+                    continue
+
+                force_data_median_index = int(len(force_data) / 2)
+                median_region_gradient = np.mean(np.gradient(force_data[force_data_median_index - constants.md_region_window * constants.md_median_gradient_scaler:force_data_median_index * constants.md_median_gradient_scaler + constants.md_region_window]))
+
+                # compute full gradient and second derivative of force data
+                force_gradient = np.gradient(force_data)
+                force_second_derivative = np.gradient(force_gradient)
+
+                # define thresholds based on gradients
+                gradient_threshold = np.mean(np.abs(force_gradient)) * 0.9
+                second_derivative_threshold = np.mean(np.abs(force_second_derivative)) * 4
+
+                # identify potential turning points between in threshold
+                turning_points = np.where(
+                    (np.abs(force_second_derivative) > second_derivative_threshold) & 
+                    (np.abs(force_gradient) < gradient_threshold)
+                )[0]
+
+                # no turning points -> warn and skip
+                if len(turning_points) == 0:
+                    Log.warn(f"No turning points found between first activation and median for trial {trial_number} @ {mvc_level}%")
+                    continue
+
+                # find closest turning point to relative activations
+                leading_turn_index = turning_points[np.argmin(np.abs(turning_points - first_activation_index))]
+                trailing_turn_index = turning_points[np.argmin(np.abs(turning_points - last_activation_index))]
 
                 Log.debug(f"\tLeading turn: {leading_turn_index / globals.constants.sampling_frequency} | Trailing turn: {trailing_turn_index / globals.constants.sampling_frequency}", trial=trial)
 
-                # calculate gradient between leading turn and the proceeding activation
+                region_gradients: dict[int, float] = {}
 
-                # adjust all points before first activation to follow the leading gradient
-                # start, end = (first_activation_index, leading_turn_index) if first_activation_index <= leading_turn_index else (leading_turn_index, first_activation_index)
-                # leading_gradient: float = np.mean(np.gradient(force_data[start:end]))
-                # force_data[:first_activation_index] = (force_data[first_activation_index] - leading_gradient * np.arange(first_activation_index)[::-1])
-                # print(force_data[:first_activation_index])
-                # get indices where force is 0 before first activation
-                # leading_zero = np.where(force_data[:first_activation_index] == 0)[0]
+                # compute mean gradient for each window in the force data
+                for window in range(leading_turn_index, trailing_turn_index, constants.md_region_window):
+                    region_mean_gradient = np.mean(np.gradient(force_data[window:window + constants.md_region_window]))
+                    region_gradients[window] = region_mean_gradient
 
-                # # if there are any zeros before first activation
-                # if len(leading_zero) > 0:
-                #     Log.info(f"Leading zeros found for trial {trial_number} @ {mvc_level}%")
-                #     # replace all values before the first zero with zeros
-                #     first_zero_index = leading_zero[0]
-                #     force_data[:first_zero_index] = 0
+                inflection_indices: list[int] = [0, 0] # left and right inflection points (edge of flat region) respectively
 
-                # adjust all points after last activation to follow the trailing gradient
-                # start, end = (last_activation_index, trailing_turn_index) if last_activation_index <= trailing_turn_index else (trailing_turn_index, last_activation_index)
-                # trailing_gradient: float = np.mean(np.gradient(force_data[start:end]))
-                # points_after = len(force_data) - last_activation_index
-                # force_data[last_activation_index:] = trailing_gradient * np.arange(points_after)
+                # find furthest gradient from median region gradient within error threshold
+                for region_start_index, region_gradient in region_gradients.items():
+                    # right inflection point already found -> skip 
+                    if region_start_index <= force_data_median_index and inflection_indices[0] != 0:
+                        continue
+                    
+                    # within acceptable threshold of median region gradient -> potential inflection point
+                    if math.isclose(region_gradient, median_region_gradient, rel_tol=constants.md_region_tolerance):
+                        is_left_inflection = region_start_index < force_data_median_index
+                        inflection_index = 0 if is_left_inflection else 1
+                        inflection_indices[inflection_index] = region_start_index if is_left_inflection else region_start_index + constants.md_region_window
+                
+                # no valid inflection indices -> skip 
+                if inflection_indices[0] == 0 or inflection_indices[1] == 0:
+                    Log.warn(f"Could not find valid inflection indices for trial {trial_number} @ {mvc_level}%")
+                    continue
 
-                # force_data[:] = np.clip(force_data, a_min=0, a_max=np.inf)
+                # store inflection indices for future processing
+                self.df.at[index, 'force_inflection_indices'] = (inflection_indices[0], inflection_indices[1])
 
-                #! 2. Purge GMDs
+                Log.debug(f"\tFlat Region Interval (Inflection Points): ({inflection_indices[0] / globals.constants.sampling_frequency}, {inflection_indices[1] / globals.constants.sampling_frequency})", trial=trial)
 
+                mean_leading_gradient = np.mean(np.gradient(force_data[first_activation_index:inflection_indices[0]]))
+                mean_trailing_gradient = np.mean(np.gradient(force_data[inflection_indices[1]:last_activation_index]))
+                mean_edge_gradient = np.mean([mean_leading_gradient, -mean_trailing_gradient])
 
+                # left symmetric region not modified -> apply gradient modification before first activation
+                if not left_symmetric_modified:
+                    if inflection_indices[0] == 0:
+                        Log.warn(f"Required left inflection index not found for trial {trial_number} @ {mvc_level}%, skipping...", )
+                        continue
+                    
+                    # replace the data before the first activation with scaled mean-gradient generated data 
+                    gradient_values = np.arange(len(force_data[:first_activation_index])) * constants.md_mvc_gradient_scaling[mvc_level] * mean_edge_gradient + force_data[first_activation_index]
+                    force_data[:first_activation_index:] = np.clip(gradient_values, a_min=0, a_max=np.inf) # clip negative values
+
+                # right symmetric region not modified -> apply gradient modification past last activation
+                if not right_symmetric_modified:
+                    if inflection_indices[1] == 0:
+                        Log.warn(f"Required right inflection index not found for trial {trial_number} @ {mvc_level}%, skipping...", )
+                        continue
+
+                    # replace the data after the last activation with scaled mean-gradient generated data 
+                    gradient_values = np.arange(len(force_data[last_activation_index:])) * constants.md_mvc_gradient_scaling[mvc_level] * -mean_edge_gradient + force_data[last_activation_index]
+                    force_data[last_activation_index:] = np.clip(gradient_values, a_min=0, a_max=np.inf) # clip negative values
+
+                self.df.at[index, 'force_data'] = force_data
 
                 #! 3. Correct inner MDs by adding artificial neuron activation data in sparse regions and dropping bad neurons
 
@@ -332,7 +375,7 @@ class Sanitization:
     def sanitize(self):
         """Sanitize the given pandas dataframe with feature-specific methods."""
         self._purge_insufficient_neuron_data() # N
-        # self._purge_neuron_inconsistencies() # NI
+        self._purge_neuron_inconsistencies() # NI
         # self._smooth_force_spikes() # S
         self._handle_measurement_decorrelation() # MD
         # self._normalize_and_scale()
