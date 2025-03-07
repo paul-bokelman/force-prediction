@@ -159,20 +159,6 @@ class Sanitization:
     def _handle_measurement_decorrelation(self):
         """Handle measurement decorrelation (MD) by adding artificial neuron activation data in sparse regions and clamping force dat beyond measures. Unrecoverable de-correlations (general measurement decorrelation (GMD)) will also be identified and purged."""
         Log.info("Handling measurement correlation...")
-
-        def isi_gamma(mean_isi: np.floating, cv: np.floating, n_spikes: int) -> np.ndarray:
-            """Generate ISIs from a gamma distribution for bursty firing patterns."""
-            k = 1 / (cv ** 2)  # shape parameter
-            theta = mean_isi / k  # scale parameter
-            return np.random.gamma(shape=k, scale=theta, size=n_spikes)
-        
-        def isi_expo(mean_isi: np.floating, n_spikes: int) -> np.ndarray:
-            """Generate ISIs from an exponential distribution for Poisson-like firing. """
-            return np.random.exponential(scale=mean_isi, size=n_spikes)
-
-        def isi_normal(mean_isi: np.floating, isi_std: np.floating, n_spikes: int) -> np.ndarray:
-            """Generate ISIs from a normal distribution for regular firing patterns."""
-            return np.abs(np.random.normal(loc=mean_isi, scale=isi_std, size=n_spikes))
         
         subjects = self.df['subject'].unique()
 
@@ -313,47 +299,7 @@ class Sanitization:
 
                 self.df.at[index, 'force_data'] = force_data
 
-                #! 3. Correct inner MDs by adding artificial neuron activation data in sparse regions and dropping bad neurons
-
-                
-                # conditionally add artificial neural activation data in sparse regions based on CV (relative model functions) 
-                # compute and compare each neurons ISI to the global mean max distance
-                # for i, neuron in enumerate(neuron_data):
-                #     neuron_isi = self._compute_neuron_isi(neuron)
-                    
-                #     # skip if there is not enough data to compute ISI
-                #     if neuron_isi is None:
-                #         continue
-
-                #     Log.warn(f"Neuron {i + 1} | Trial {trial_number} @ {mvc_level}% | {np.max(neuron_isi)}")
-
-                #     # activations are sparse or don't conform to trend -> include artificial activations
-                #     if np.max(neuron_isi) > self.global_mean_max_distance:
-                #         Log.error(f"Neuron {i + 1} | Trial {trial_number} @ {mvc_level}% | {np.max(neuron_isi)}")
-
-                #     # print(max_distance, self.global_mean_max_distance)
-
-                # #! detect md with isi_stats.max, purge gmd
-                # #? could absorb _purge_neuron_inconsistencies
-
-                # # MD is too great (GMD) -> purge entry
-
-                #     # calculate ISI and CV for each subject
-                # isi, std, cv = neuron_stats.isi, neuron_stats.std, neuron_stats.cv
-                # spike_train_len = neuron_data.shape[0]
-
-                # # compute the new isi based on the CV
-                # computed_isi = isi_normal(isi, cv, spike_train_len) if cv < 1 else isi_gamma(isi, std, spike_train_len) if cv > 1 else isi_expo(isi, spike_train_len)
-
-                # # build artificial spike train based on computed ISI
-                # spike_indices = np.cumsum(computed_isi).astype(int)  # convert to discrete indices
-                # spike_indices = spike_indices[spike_indices < spike_train_len] # remove indices that exceed the length of the spike train
-                # binary_spike_train = np.zeros(spike_train_len, dtype=int) # initialize binary spike train with 0s
-                # binary_spike_train[spike_indices] = 1  # set spikes to 1 
-
-
         Log.success("Measurement decorrelation mitigated.")
-        
 
     def _check_trend(self):
         """Check to see if trend is significantly different average trend."""
