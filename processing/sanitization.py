@@ -1,13 +1,11 @@
-from typing import Union, Any
+from typing import Union
 from processing.types import ISIStatistics
 import math
 import pandas as pd
 import numpy as np
-from scipy.ndimage import median_filter
 import globals.constants
 from globals.utils import Log, format_subject
 import processing.constants as constants
-from processing import utils
 
 class Sanitization:
     """Remove or correct any errors in the data. This includes removing outliers, filling in missing values, and correcting any other errors in the data. Some entries are not recoverable and will be "purged"."""
@@ -72,47 +70,6 @@ class Sanitization:
 
         Log.success("Global statistics computed.")
 
-    def _normalize_and_scale(self):
-        """Reshape, normalize, and scale the neuron and force data for consistency."""
-        Log.info("Normalizing data...")
-
-        # Normalize neuron data shapes
-        def normalize_neuron_data(data: np.ndarray) -> Any:
-            if data is None:
-                return None
-            
-            normalized = np.zeros((self.max_n_neurons, self.max_activations))
-            h, w = data.shape
-            normalized[:h, :w] = data
-            return normalized
-
-        self.df.loc[:, "neuron_data"] = self.df["neuron_data"].apply(normalize_neuron_data)
-
-        Log.info(f"\tNormalized neuron shape to ({self.max_n_neurons}, {self.max_activations})")
-
-        # Normalize force data shapes
-        def normalize_force_data(data) -> Any:
-            normalized = np.zeros(self.max_force_len)
-            length = len(data)
-            normalized[:length] = data
-            return normalized
-
-        self.df["force_data"].apply(normalize_force_data)
-
-        Log.info(f"\tNormalized force shape to ({self.max_force_len},)")
-         
-        # convert negative force values to 0 (reLU)
-        self.df.loc[:, "force_data"] = self.df["force_data"].map(lambda x: np.maximum(x, 0))
-
-        # scale given data to values between 0 and 1
-        def scale(x):
-            return (x - x.min()) / (x.max() - x.min())
-
-        # normalize force to values between 0 and 1
-        self.df.loc[:, "force_data"] = self.df["force_data"].apply(scale)
-
-        Log.success("Data normalized.")
-
     def _purge_insufficient_neuron_data(self):
         """Remove entries that have insufficient number of neurons in the data."""
         Log.info("Purging entries with insufficient neuron data...")
@@ -126,15 +83,6 @@ class Sanitization:
         self.df = self.df[self.df["neuron_data"].map(valid_number_of_neurons)] 
 
         Log.success(f"Purged {prev_len - len(self.df)} entries with insufficient neuron data. {len(self.df)} entries remaining.")
-
-    def _smooth_force_spikes(self):
-        """Smooth out force spikes in the data."""
-        Log.info("Checking for force spikes...")
-
-        # apply median_filter with large window to smooth out force spikes
-        self.df['force_data'] = [median_filter(x, size=constants.spike_smoothing_window) for x in self.df['force_data']]
-        
-        Log.success(f"Processed force spikes in {len(self.df)} entries.")
 
     def _purge_neuron_inconsistencies(self):
         """Check if there are any outlandish inconsistencies in the neuron data."""
@@ -174,8 +122,6 @@ class Sanitization:
                 if neuron_data is None:
                     Log.warn(f"{format_subject(trial)} Neuron data is missing for trial {trial_number} @ {mvc_level}%.")
                     continue
-
-                # neuron_stats = self._compute_isi_statistics(neuron_data)
 
                 # identify the turning points closest to the first and last activations
                 first_activation_index: int = min(np.argmax(neuron_data == 1, axis=1))
@@ -301,10 +247,6 @@ class Sanitization:
 
         Log.success("Measurement decorrelation mitigated.")
 
-    def _check_trend(self):
-        """Check to see if trend is significantly different average trend."""
-        pass
-
     def show_purged(self):
         """Show the difference between the given dataframe and the current dataframe."""
         # Compare rows based on subject, mvc_level, and trial_number
@@ -322,8 +264,6 @@ class Sanitization:
         """Sanitize the given pandas dataframe with feature-specific methods."""
         self._purge_insufficient_neuron_data() # N
         self._purge_neuron_inconsistencies() # NI
-        # self._smooth_force_spikes() # S
         self._handle_measurement_decorrelation() # MD
-        # self._normalize_and_scale()
         return self.df
     
