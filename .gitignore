@@ -6,3 +6,4 @@ processing/out/*
 test.ipynb
 venv/
 .vscode
+prediction/saves/*
