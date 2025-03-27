@@ -1,0 +1,110 @@
+from typing import cast
+from processing.types import PreprocessedData
+import os
+from keras.api.models import Sequential, load_model
+from keras.api.layers import LSTM, Dense, Dropout, Input
+from keras.api.callbacks import EarlyStopping, ModelCheckpoint
+import matplotlib.pyplot as plt
+from globals.utils import Log
+import prediction.constants as constants
+
+class DirectPredictionModel:
+    """Direct prediction model (DPM) architecture (LSTM) and methods for training and evaluation."""
+    def __init__(self, preprocessed_data: PreprocessedData, overwrite: bool = False):
+        self.data = preprocessed_data
+        self.saved_model_path = os.path.join('prediction/', constants.saves_directory, constants.saved_model_name)
+
+        # create the saves directory if it does not exist
+        if not os.path.exists('prediction/' + constants.saves_directory):
+            os.makedirs('prediction/' + constants.saves_directory)
+
+        self.trained = False
+        self.get_model(overwrite=overwrite) # get the current model
+
+    def _create_model(self):
+        """Create an LSTM model for neuronal to force prediction."""
+        model = Sequential()
+        model.add(Input(shape=self.data.input_shape))
+        
+        # first LSTM layer with return sequences for stacking multiple LSTM layers
+        model.add(LSTM(128, activation='tanh', return_sequences=True))
+        model.add(Dropout(0.2))
+        
+        # second LSTM layer
+        model.add(LSTM(64, activation='tanh'))
+        model.add(Dropout(0.2))
+        
+        model.add(Dense(1, activation='linear')) # output layer (one force value)
+        model.compile(optimizer='adam', loss='mse', metrics=['mae']) # compile the model
+        
+        return model
+    
+    def get_model(self, overwrite: bool = False):
+        """Get the saved model if it exists, otherwise create a new model."""
+
+        # overwrite or model not saved -> create a new model
+        if overwrite or not os.path.exists(self.saved_model_path):
+            Log.info('Model not found or overwrite flag is set. Creating a new model...')
+            self.trained = False
+            self.model = self._create_model()
+        else:
+            Log.info('Loading the existing model...')
+            # load the existing model (pre-trained)
+            self.trained = True
+            self.model = cast(Sequential, load_model(self.saved_model_path))
+        
+        return self.model
+    
+    def optionally_train(self, epochs: int = constants.training_epochs, batch_size: int = constants.training_batch_size):
+        """Train the model if it is not already trained."""
+        if not self.trained:
+            Log.info('Training the model...')
+            self._train(epochs=epochs, batch_size=batch_size)
+        else:
+            Log.info('Model is already trained. Skipping training...')
+
+    def _train(self, epochs: int = constants.training_epochs, batch_size: int = constants.training_batch_size):
+        """Train and evaluate the LSTM model."""
+        
+        # training callbacks
+        callbacks = [
+            # stop training if validation loss does not improve for x epochs
+            EarlyStopping(monitor='val_loss', patience=constants.early_stopping_patience, restore_best_weights=True),
+            ModelCheckpoint(self.saved_model_path, save_best_only=True, monitor='val_loss') # save the best model based on validation loss
+        ]
+        
+        # train the model with callbacks and save the training history
+        history = self.model.fit(
+            self.data.X.train, self.data.y.train,
+            epochs=epochs,
+            batch_size=batch_size,
+            validation_data=(self.data.X.val, self.data.y.val),
+            callbacks=callbacks,
+        )
+        
+        return history
+
+    def visualize_results(self, scaler_y=None):
+        """Visualize the model predictions vs actual force profiles."""
+        # Make predictions
+        predictions = self.model.predict(self.data.X.test)
+        y_test = self.data.y.test
+        
+        # Inverse transform if scaler was used
+        if scaler_y is not None:
+            predictions = scaler_y.inverse_transform(predictions)
+            y_test = scaler_y.inverse_transform(self.data.y.test)
+        
+        # Plot the results for the first 100 time steps
+        plt.figure(figsize=(12, 6))
+        
+        # Assuming force data has at least one dimension
+        for i in range(y_test.shape[1]):
+            plt.subplot(y_test.shape[1], 1, i+1)
+            plt.plot(y_test[:100, i], label='True Force')
+            plt.plot(predictions[:100, i], label='Predicted Force')
+            plt.legend()
+            plt.title(f'Force Component {i+1}')
+        
+        plt.tight_layout()
+        plt.show()

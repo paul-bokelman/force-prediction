@@ -1,5 +1,6 @@
 from processing.types import PreprocessedData, PreprocessedDataSplit
 import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
@@ -44,10 +45,32 @@ class Preprocessing:
         neuron_data, force_data = self._normalize_and_scale()
 
         # construct X (trials, columns, features[...activations, mvc]) and y (trials, force_data)
-        X = np.array([neuron_data[i].T for i in range(len(neuron_data))]) # (trials, columns, features[activations])
+        x = np.array([neuron_data[i].T for i in range(len(neuron_data))]) # (trials, columns, features[activations])
         encoded_mvc = np.array(self.mvc_series)[:, np.newaxis].repeat(self.max_activations, axis=1)[...,np.newaxis] # (trials, max_activations, 1)
-        X = np.concatenate((X, encoded_mvc), axis=2) # (trials, columns, features[...activations, mvc])
-        y = force_data # combine all force data
+        x = np.concatenate((x, encoded_mvc), axis=2) # (trials, columns, features[...activations, mvc])
+
+        sequence_length = 50
+
+        X_windows = []
+        y_targets = []
+
+        for trial_idx in range(len(x)):
+            # create sliding window views of the data per trial
+            trial_x = sliding_window_view(x[trial_idx], sequence_length, axis=0) 
+            
+            # corresponding force data
+            trial_y = force_data[trial_idx, sequence_length:]
+            
+            assert len(trial_x) == len(trial_y) + 1, "Mismatch in trial sequence lengths" # verify alignment
+            
+            trial_x = trial_x[:-1] # trim X to match y length
+            
+            X_windows.append(trial_x)
+            y_targets.append(trial_y)
+
+        # final additional shaping
+        X = np.transpose(np.vstack(X_windows), (0, 2, 1)) # (samples, sequence_length, features)
+        y = np.concatenate(y_targets).reshape(-1, 1) # (samples, 1)
 
         Log.info(f"Preprocessed data shapes: X {X.shape}, y {y.shape}")
 
@@ -55,10 +78,12 @@ class Preprocessing:
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
 
+        print(f"X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
+
         # define input shape and output shape
-        input_shape, output_shape = (X_train.shape[1], X_train.shape[2]), y_train.shape[1]
+        input_shape = (X_train.shape[1], X_train.shape[2])
         
         # return preprocessed data in formatted data container
         return PreprocessedData(X=PreprocessedDataSplit(train=X_train, test=X_test, val=X_val),
                                 y=PreprocessedDataSplit(train=y_train, test=y_test, val=y_val),
-                                input_shape=input_shape, output_shape=output_shape)
+                                input_shape=input_shape, output_dim=1)

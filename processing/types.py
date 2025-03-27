@@ -34,4 +34,4 @@ class PreprocessedData:
     X: PreprocessedDataSplit
     y: PreprocessedDataSplit
     input_shape: tuple[int, int]
-    output_shape: int
+    output_dim: int
