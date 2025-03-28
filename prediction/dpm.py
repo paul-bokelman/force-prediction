@@ -59,7 +59,7 @@ class DirectPredictionModel:
         """Train the model if it is not already trained."""
         if not self.trained:
             Log.info('Training the model...')
-            self._train(epochs=epochs, batch_size=batch_size)
+            return self._train(epochs=epochs, batch_size=batch_size)
         else:
             Log.info('Model is already trained. Skipping training...')
 

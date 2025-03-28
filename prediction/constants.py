@@ -6,7 +6,7 @@ training_epochs = 10 # number of training epochs
 training_batch_size = 32 # batch size for training
 saves_directory = 'saves/' # directory for saving trained models
 saved_model_name = 'model.keras' # name of the saved model
-early_stopping_patience = 20 # patience for early stopping callback during training
+early_stopping_patience = 10 # patience for early stopping callback during training
 
 # -------------------- inferential prediction model (ipm) -------------------- #
 
