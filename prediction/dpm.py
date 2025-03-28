@@ -1,10 +1,13 @@
 from typing import cast
 from processing.types import PreprocessedData
 import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 from keras.api.models import Sequential, load_model
 from keras.api.layers import LSTM, Dense, Dropout, Input
 from keras.api.callbacks import EarlyStopping, ModelCheckpoint
-import matplotlib.pyplot as plt
+from processing.preprocessing import Preprocessing
 from globals.utils import Log
 import prediction.constants as constants
 
@@ -83,28 +86,26 @@ class DirectPredictionModel:
         )
         
         return history
+    
+    def predict(self, neuron_data: pd.Series, mvc: int) -> np.ndarray:
+        """Predict a force profile given neuron data"""
 
-    def visualize_results(self, scaler_y=None):
+        force = self.model.predict(Preprocessing.preprocess_trial(np.array(list(neuron_data)), mvc)) # preprocess the trial data to match model input
+        return force
+
+    def visualize_results(self):
         """Visualize the model predictions vs actual force profiles."""
-        # Make predictions
         predictions = self.model.predict(self.data.X.test)
-        y_test = self.data.y.test
-        
-        # Inverse transform if scaler was used
-        if scaler_y is not None:
-            predictions = scaler_y.inverse_transform(predictions)
-            y_test = scaler_y.inverse_transform(self.data.y.test)
-        
-        # Plot the results for the first 100 time steps
+
         plt.figure(figsize=(12, 6))
         
-        # Assuming force data has at least one dimension
-        for i in range(y_test.shape[1]):
-            plt.subplot(y_test.shape[1], 1, i+1)
-            plt.plot(y_test[:100, i], label='True Force')
-            plt.plot(predictions[:100, i], label='Predicted Force')
-            plt.legend()
-            plt.title(f'Force Component {i+1}')
+        # plot training history
+        plt.plot(self.data.y.test[:200], label='True Force')
+        plt.plot(predictions[:200], label='Predicted Force')
+        plt.legend()
+        plt.title(f'Predicted Force')
+        plt.xlabel('Time Steps')
+        plt.ylabel('Force Value')
         
         plt.tight_layout()
         plt.show()

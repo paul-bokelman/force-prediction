@@ -26,3 +26,7 @@ raw_data_dir: Callable[[str], str] = lambda name: f"{data_dir}/{name}/raw" # dir
 base_output_dir = "out" # directory to save output files
 user_output_dir: Callable[[str], str] = lambda name: f"{base_output_dir}/{name}" # directory to save user-specific output files
 min_spike_interval = 33 # minimum amount of time between spikes in milliseconds
+
+# ------------------------------- preprocessing ------------------------------ #
+
+sequence_length = 50

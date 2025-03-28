@@ -6,27 +6,43 @@ import matplotlib.pyplot as plt
 import globals.constants as constants
 
 def visualize_trial(
-        df: pd.DataFrame, 
-        subject: str, 
-        mvc_level: int, 
-        trial_number: int, 
+        df: Optional[pd.DataFrame] = None, 
+        subject: Optional[str] = None,
+        mvc_level: Optional[int] = None, 
+        trial_number: Optional[int] = None, 
+        neuron_data: Optional[np.ndarray] = None,
+        force_data: Optional[np.ndarray] = None,
+        predicted_force: Optional[np.ndarray] = None,
         output: Optional[str] = None, 
         vmarkers: Optional[list[float]] = None, 
         hmarkers: Optional[list[float]] = None,
     ) -> None:
     """Plot grid of raster plots with force overlays for a given trial. Optionally save the plot to a file and or apply markers."""
-        
+
+    # either neuron_data or force_data is None, we need df and all trial identifiers
+    if (neuron_data is None or force_data is None) and (df is None or subject is None or mvc_level is None or trial_number is None):
+        raise ValueError("If either neuron_data or force_data is None, then df, subject, mvc_level, and trial_number are all required.")
+    
+    # ensure we have at least one data source (DataFrame or direct data)
+    if df is None and (neuron_data is None and force_data is None):
+        raise ValueError("Either a DataFrame or both neuron_data and force_data must be provided.")
+    
     # filter data for the given subject, trial, and mvc level
-    trial = df[(df["subject"] == subject) & (df["trial_number"] == trial_number) & (df["mvc_level"] == mvc_level)].iloc[0]
+    trial = df[(df["subject"] == subject) & (df["trial_number"] == trial_number) & (df["mvc_level"] == mvc_level)].iloc[0] if df is not None else None
 
     # setting up the plot
     plt.figure(figsize=(18, 6))
-    plt.title(f"{trial['subject']} | Trial {trial['trial_number']} | {trial['mvc_level']}% MVC")
     plt.ylabel("Motor Neuron")
     plt.xlabel("Time (s)")
 
-    force_data = trial["force_data"]
-    neuron_data = trial["neuron_data"]
+    # conditionally set title based on whether trial data is available
+    if trial is not None:
+        plt.title(f"{trial['subject']} | Trial {trial['trial_number']} | {trial['mvc_level']}% MVC")
+    else:
+        plt.title(f"Visualizing Manual Data")
+
+    force_data = cast(pd.Series, trial)["force_data"] if force_data is None else force_data
+    neuron_data = cast(pd.Series, trial)["neuron_data"] if neuron_data is None else neuron_data
 
     def plot_force_only(force_data: np.ndarray, time_values: np.ndarray) -> None:
         """Plots force data only"""
@@ -44,10 +60,10 @@ def visualize_trial(
         for i, neuron in enumerate(sorted_data):
             plt.plot(time_values, neuron * (i + 1), '|')
 
-    def plot_force_overlay(force_data: np.ndarray, time_values: np.ndarray, force_axis: Axes):
+    def plot_force_overlay(force_data: np.ndarray, time_values: np.ndarray, force_axis: Axes, color: str):
         """Plots force overlay on additional axis"""
         force_axis.set_ylabel("Force", color='red')
-        force_axis.plot(time_values, force_data, label="Force Profile", color='red')
+        force_axis.plot(time_values, force_data, label="Force Profile", color=color)
         
         # add legend
         lines1, labels1 = plt.gca().get_legend_handles_labels()
@@ -70,14 +86,24 @@ def visualize_trial(
     if force_data.size > 0:
         force_axis = cast(Axes, plt.twinx())
         force_time = np.linspace(0, total_time, len(force_data))
-        plot_force_overlay(force_data, force_time, force_axis)
+        plot_force_overlay(force_data, force_time, force_axis, 'red')
+        
+        # add predicted force overlay if present
+        if predicted_force is not None and predicted_force.size > 0:
+            # Use same time scale as actual force
+            pred_force_time = np.linspace(0, total_time, len(predicted_force))
+            force_axis.plot(pred_force_time, predicted_force, label="Predicted Force", color='blue')
+            # Update legend to include both force profiles
+            lines, labels = force_axis.get_legend_handles_labels()
+            force_axis.legend(lines, labels, loc='upper right')
 
     # add vertical markers if present
     if vmarkers:
         for marker in vmarkers:
             plt.axvline(marker, color='black', linestyle='--')
 
-    if trial['force_inflection_indices']:
+    # add vertical lines for force inflection points if present
+    if trial is not None and trial['force_inflection_indices']:
         for inflection_index in [idx for idx in trial['force_inflection_indices'] if idx is not None]:
             plt.axvline(inflection_index / constants.sampling_frequency, color='blue', linestyle='-')
 

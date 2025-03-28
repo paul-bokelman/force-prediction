@@ -3,6 +3,7 @@ from processing.types import ISIStatistics
 import math
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import MinMaxScaler
 import globals.constants
 from globals.utils import Log, format_subject
 import processing.constants as constants
@@ -64,11 +65,39 @@ class Sanitization:
         self.max_force_len = max(len(x) for x in self.df["force_data"])
         self.max_n_neurons = max(x.shape[0] for x in self.df["neuron_data"] if x is not None)
         self.max_activations = max(x.shape[1] for x in self.df["neuron_data"] if x is not None)
+
         Log.info(f"\tMax force data length: {self.max_force_len}")
         Log.info(f"\tMax number of neurons: {self.max_n_neurons}")
         Log.info(f"\tMax number of activations: {self.max_activations}")
 
         Log.success("Global statistics computed.")
+
+    def _normalize_and_scale(self):
+        """Scale force data and normalize neuron data"""
+
+        Log.info("Normalizing and scaling neuron and force data...")
+
+        neuron_data, force_data = np.array(self.df['neuron_data']), np.array(self.df['force_data'])
+
+        # pad and scale force data -> (max_force_len,)
+        for i in range(len(force_data)):
+            force_data[i] = np.pad( force_data[i], (0, self.max_force_len - len(force_data[i])), mode='constant')
+
+            # scale force data
+            force_data[i] = MinMaxScaler().fit_transform(force_data[i].reshape(-1, 1)).reshape(-1)
+
+        # pad neuron data -> (max_neurons, max_activations)
+        for i in range(len(neuron_data)):
+            padding = ((0, self.max_n_neurons - neuron_data[i].shape[0]), # pad rows (neurons)
+                        (0, self.max_activations - neuron_data[i].shape[1])) # pad columns (activations)
+            neuron_data[i] = np.pad(neuron_data[i], padding, mode='constant', constant_values=0) # pad each neuron data array
+
+        self.df['neuron_data'] = neuron_data # update the dataframe with the normalized neuron data
+        self.df['force_data'] = force_data # update the dataframe with the scaled force data
+
+        Log.info(f"Normalized Neuron Shape: {neuron_data[0].shape}")
+        Log.info(f"Scaled Force Data Shape: {force_data[0].shape}")
+        Log.success("Neuron and force data normalized and scaled.")
 
     def _purge_insufficient_neuron_data(self):
         """Remove entries that have insufficient number of neurons in the data."""
@@ -265,5 +294,6 @@ class Sanitization:
         self._purge_insufficient_neuron_data() # N
         self._purge_neuron_inconsistencies() # NI
         self._handle_measurement_decorrelation() # MD
+        self._normalize_and_scale()
         return self.df
     

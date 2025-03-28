@@ -2,9 +2,9 @@ from processing.types import PreprocessedData, PreprocessedDataSplit
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from globals.utils import Log
+import processing.constants as constants
 
 class Preprocessing:
     """Preprocesses the neuronal and force data into sequences for model training."""
@@ -20,46 +20,24 @@ class Preprocessing:
         if self.max_activations != self.max_force_len:
             raise ValueError("The number of activations and force data lengths must be equal.")
 
-    def _normalize_and_scale(self):
-            """Scale force data and normalize neuron data"""
-            neuron_data, force_data = np.array(self.neuron_data_series), np.array(self.force_data_series)
-
-            # pad and scale force data -> (max_force_len,)
-            for i in range(len(force_data)):
-                force_data[i] = np.pad( force_data[i], (0, self.max_force_len - len(force_data[i])), mode='constant')
-
-                # scale force data
-                force_data[i] = MinMaxScaler().fit_transform(force_data[i].reshape(-1, 1)).reshape(-1)
-
-            # pad neuron data -> (max_neurons, max_activations)
-            for i in range(len(neuron_data)):
-                padding = ((0, self.max_n_neurons - neuron_data[i].shape[0]), # pad rows (neurons)
-                           (0, self.max_activations - neuron_data[i].shape[1])) # pad columns (activations)
-                neuron_data[i] = np.pad(neuron_data[i], padding, mode='constant', constant_values=0) # pad each neuron data array
-
-            #/ weird conversion to list and back to array to avoid numpy broadcasting issues
-            return np.array(list(neuron_data)), np.array(list(force_data))
-
     def preprocess(self) -> PreprocessedData:
         """Preprocess the neuronal and force data into sequences for model training."""
-        neuron_data, force_data = self._normalize_and_scale()
+        neuron_data, force_data = np.array(list(self.neuron_data_series)), np.array(list(self.force_data_series)) #/ stupid casting hack for dims
 
         # construct X (trials, columns, features[...activations, mvc]) and y (trials, force_data)
         x = np.array([neuron_data[i].T for i in range(len(neuron_data))]) # (trials, columns, features[activations])
         encoded_mvc = np.array(self.mvc_series)[:, np.newaxis].repeat(self.max_activations, axis=1)[...,np.newaxis] # (trials, max_activations, 1)
         x = np.concatenate((x, encoded_mvc), axis=2) # (trials, columns, features[...activations, mvc])
 
-        sequence_length = 50
-
         X_windows = []
         y_targets = []
 
         for trial_idx in range(len(x)):
             # create sliding window views of the data per trial
-            trial_x = sliding_window_view(x[trial_idx], sequence_length, axis=0) 
+            trial_x = sliding_window_view(x[trial_idx], constants.sequence_length, axis=0) 
             
             # corresponding force data
-            trial_y = force_data[trial_idx, sequence_length:]
+            trial_y = force_data[trial_idx, constants.sequence_length:]
             
             assert len(trial_x) == len(trial_y) + 1, "Mismatch in trial sequence lengths" # verify alignment
             
@@ -74,9 +52,9 @@ class Preprocessing:
 
         Log.info(f"Preprocessed data shapes: X {X.shape}, y {y.shape}")
 
-        # split data
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
+        # split data without shuffling to maintain time-series integrity
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+        X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.2, shuffle=False)
 
         print(f"X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
 
@@ -87,3 +65,30 @@ class Preprocessing:
         return PreprocessedData(X=PreprocessedDataSplit(train=X_train, test=X_test, val=X_val),
                                 y=PreprocessedDataSplit(train=y_train, test=y_test, val=y_val),
                                 input_shape=input_shape, output_dim=1)
+    
+    @staticmethod
+    def preprocess_trial(neuron_data: np.ndarray, mvc: float) -> np.ndarray:
+        """
+        Preprocess a single trial of neuron data to be used as model input.
+        
+        Args:
+            neuron_data: Array of shape (neurons, activations)
+            mvc: Maximum voluntary contraction value
+            
+        Returns:
+            Processed data of shape (n_windows, sequence_length, features)
+        """
+        # Transpose to get (activations, neurons)
+        x = neuron_data.T
+        
+        # Add MVC as additional feature
+        encoded_mvc = np.full((x.shape[0], 1), mvc)
+        x = np.concatenate((x, encoded_mvc), axis=1)
+        
+        # Create sliding windows
+        windows = sliding_window_view(x, constants.sequence_length, axis=0)
+        
+        # Shape to match model input format (n_windows, sequence_length, features)
+        windows = np.transpose(windows, (0, 2, 1))
+        
+        return windows
