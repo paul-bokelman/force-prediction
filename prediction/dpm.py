@@ -26,18 +26,15 @@ class DirectPredictionModel:
 
     def _create_model(self):
         """Create an LSTM model for neuronal to force prediction."""
-        model = Sequential()
-        model.add(Input(shape=self.data.input_shape))
+        model = Sequential([
+            Input(shape=self.data.input_shape),
+            LSTM(128, return_sequences=True),
+            Dropout(0.2),
+            LSTM(64, return_sequences=True),
+            Dropout(0.2),
+            Dense(1, activation='linear')
+        ])
         
-        # first LSTM layer with return sequences for stacking multiple LSTM layers
-        model.add(LSTM(128, activation='tanh', return_sequences=True))
-        model.add(Dropout(0.2))
-        
-        # second LSTM layer
-        model.add(LSTM(64, activation='tanh'))
-        model.add(Dropout(0.2))
-        
-        model.add(Dense(1, activation='linear')) # output layer (one force value)
         model.compile(optimizer='adam', loss='mse', metrics=['mae']) # compile the model
         
         return model
@@ -55,6 +52,8 @@ class DirectPredictionModel:
             # load the existing model (pre-trained)
             self.trained = True
             self.model = cast(Sequential, load_model(self.saved_model_path))
+
+        self.model.summary() # print the model summary
         
         return self.model
     

@@ -68,27 +68,17 @@ class Preprocessing:
     
     @staticmethod
     def preprocess_trial(neuron_data: np.ndarray, mvc: float) -> np.ndarray:
-        """
-        Preprocess a single trial of neuron data to be used as model input.
+        """Preprocess a single trial of neuron data to be used as model input."""
+        x = neuron_data.T # transpose -> (activations, neurons)
         
-        Args:
-            neuron_data: Array of shape (neurons, activations)
-            mvc: Maximum voluntary contraction value
-            
-        Returns:
-            Processed data of shape (n_windows, sequence_length, features)
-        """
-        # Transpose to get (activations, neurons)
-        x = neuron_data.T
-        
-        # Add MVC as additional feature
+        # encode mvc
         encoded_mvc = np.full((x.shape[0], 1), mvc)
         x = np.concatenate((x, encoded_mvc), axis=1)
         
-        # Create sliding windows
+        # sliding window view to create sequences of the specified length
         windows = sliding_window_view(x, constants.sequence_length, axis=0)
         
-        # Shape to match model input format (n_windows, sequence_length, features)
+        # shape to match model input format (n_windows, sequence_length, features)
         windows = np.transpose(windows, (0, 2, 1))
         
         return windows
