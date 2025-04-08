@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from keras.api.models import Sequential, load_model
-from keras.api.layers import LSTM, Dense, Dropout, Input
+from keras.api.layers import Bidirectional, LSTM, Conv1D, Dense, Input, Reshape
 from keras.api.callbacks import EarlyStopping, ModelCheckpoint
 from processing.preprocessing import Preprocessing
 from globals.utils import Log
@@ -26,13 +26,21 @@ class DirectPredictionModel:
 
     def _create_model(self):
         """Create an LSTM model for neuronal to force prediction."""
+       
         model = Sequential([
-            Input(shape=self.data.input_shape),
-            LSTM(128, return_sequences=True),
-            Dropout(0.2),
-            LSTM(64, return_sequences=True),
-            Dropout(0.2),
-            Dense(1, activation='linear')
+            Input(shape=self.data.input_shape), # input_shape: (T, N+1)
+
+            # short-term pattern detection
+            Conv1D(32, kernel_size=5, activation='relu', padding='same'),
+            Conv1D(32, kernel_size=5, activation='relu', padding='same'),
+
+            # long term context
+            Bidirectional(LSTM(128, return_sequences=True)), 
+            Dense(64, activation='relu'),
+
+            # output and reshape
+            Dense(1),
+            Reshape((-1,)) # shape: (T,)
         ])
         
         model.compile(optimizer='adam', loss='mse', metrics=['mae']) # compile the model
@@ -53,7 +61,7 @@ class DirectPredictionModel:
             self.trained = True
             self.model = cast(Sequential, load_model(self.saved_model_path))
 
-        self.model.summary() # print the model summary
+        # self.model.summary() # print the model summary
         
         return self.model
     
@@ -88,9 +96,9 @@ class DirectPredictionModel:
     
     def predict(self, neuron_data: pd.Series, mvc: int) -> np.ndarray:
         """Predict a force profile given neuron data"""
-
-        force = self.model.predict(Preprocessing.preprocess_trial(np.array(list(neuron_data)), mvc)) # preprocess the trial data to match model input
-        return force
+        x = Preprocessing.preprocess_trial(np.array(list(neuron_data)), mvc)
+        force = self.model.predict(x) # preprocess the trial data to match model input
+        return force.flatten()
 
     def visualize_results(self):
         """Visualize the model predictions vs actual force profiles."""

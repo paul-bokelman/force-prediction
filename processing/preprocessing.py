@@ -24,31 +24,20 @@ class Preprocessing:
         """Preprocess the neuronal and force data into sequences for model training."""
         neuron_data, force_data = np.array(list(self.neuron_data_series)), np.array(list(self.force_data_series)) #/ stupid casting hack for dims
 
-        # construct X (trials, columns, features[...activations, mvc]) and y (trials, force_data)
-        x = np.array([neuron_data[i].T for i in range(len(neuron_data))]) # (trials, columns, features[activations])
-        encoded_mvc = np.array(self.mvc_series)[:, np.newaxis].repeat(self.max_activations, axis=1)[...,np.newaxis] # (trials, max_activations, 1)
-        x = np.concatenate((x, encoded_mvc), axis=2) # (trials, columns, features[...activations, mvc])
+        X_list = []
+        y_list = []
 
-        X_windows = []
-        y_targets = []
+        for neuron_data, force_data, mvc in zip(neuron_data, force_data, self.mvc_series):
+            T = force_data.shape[0]
+            mvc_row = np.full((1, T), mvc) # [1, T]
+            input_matrix = np.vstack([neuron_data, mvc_row]) # [N+1, T]
+            input_matrix = input_matrix.T # [T, N+1]
 
-        for trial_idx in range(len(x)):
-            # create sliding window views of the data per trial
-            trial_x = sliding_window_view(x[trial_idx], constants.sequence_length, axis=0) 
-            
-            # corresponding force data
-            trial_y = force_data[trial_idx, constants.sequence_length:]
-            
-            assert len(trial_x) == len(trial_y) + 1, "Mismatch in trial sequence lengths" # verify alignment
-            
-            trial_x = trial_x[:-1] # trim X to match y length
-            
-            X_windows.append(trial_x)
-            y_targets.append(trial_y)
+            X_list.append(input_matrix.astype(np.float32)) # [T, N+1]
+            y_list.append(force_data.astype(np.float32)) # [T]
 
-        # final additional shaping
-        X = np.transpose(np.vstack(X_windows), (0, 2, 1)) # (samples, sequence_length, features)
-        y = np.concatenate(y_targets).reshape(-1, 1) # (samples, 1)
+        X = np.stack(X_list) # [num_trials, T, N+1]
+        y = np.stack(y_list) # [num_trials, T]
 
         Log.info(f"Preprocessed data shapes: X {X.shape}, y {y.shape}")
 
@@ -69,16 +58,8 @@ class Preprocessing:
     @staticmethod
     def preprocess_trial(neuron_data: np.ndarray, mvc: float) -> np.ndarray:
         """Preprocess a single trial of neuron data to be used as model input."""
-        x = neuron_data.T # transpose -> (activations, neurons)
-        
-        # encode mvc
-        encoded_mvc = np.full((x.shape[0], 1), mvc)
-        x = np.concatenate((x, encoded_mvc), axis=1)
-        
-        # sliding window view to create sequences of the specified length
-        windows = sliding_window_view(x, constants.sequence_length, axis=0)
-        
-        # shape to match model input format (n_windows, sequence_length, features)
-        windows = np.transpose(windows, (0, 2, 1))
-        
-        return windows
+        T = neuron_data.shape[1]
+
+        mvc_row = np.full((1, T), mvc)
+        input_matrix = np.vstack([neuron_data, mvc_row]).T  # [T, N+1]
+        return input_matrix[np.newaxis, :, :]  # shape [1, T, N+1]
