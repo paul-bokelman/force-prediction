@@ -29,4 +29,6 @@ min_spike_interval = 33 # minimum amount of time between spikes in milliseconds
 
 # ------------------------------- preprocessing ------------------------------ #
 
-sequence_length = 50
+sequence_length = 200 # length of the sliding window for preprocessing
+stride = sequence_length // 2 # stride for sliding window
+train_split_percentage, val_split_percentage, test_split_percentage = 0.8, 0.1, 0.1 # split percentages for training, validation, and test sets

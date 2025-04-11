@@ -13,6 +13,7 @@ class Sanitization:
     def __init__(self, df: pd.DataFrame):
         self.df = df
         self.original_df = df.copy()
+        self._purge_insufficient_neuron_data() # N
         self._compute_global_statistics()
 
     @staticmethod
@@ -33,9 +34,10 @@ class Sanitization:
         # compute isi mean and max for each neuron in the sets
         for neuron in neuron_set:
             # skip the neuron if it contains no activations
-            if np.all(neuron == 0):
+            if np.isscalar(neuron) or np.all(neuron == 0) or neuron is None:
+                Log.warn(f"Invalid neuron data ({neuron}), skipping...")
                 continue
-
+            
             isi = Sanitization._compute_neuron_isi(neuron)
 
             # skip if there is not enough data to compute ISI
@@ -152,11 +154,11 @@ class Sanitization:
                     Log.warn(f"{format_subject(trial)} Neuron data is missing for trial {trial_number} @ {mvc_level}%.")
                     continue
 
-                # identify the turning points closest to the first and last activations
+                # find first and last activations
                 first_activation_index: int = min(np.argmax(neuron_data == 1, axis=1))
                 last_activation_index: int = max(neuron_data.shape[1] - np.argmax(neuron_data[:, ::-1] == 1, axis=1) - 1)
 
-                # clip leading/trailing force data that has or wil hit zero
+                # clip leading/trailing force data that has or will hit zero
                 left_symmetric: np.ndarray = force_data[:int(len(force_data) / 2)]
                 right_symmetric: np.ndarray = force_data[int(len(force_data) / 2):]
 
@@ -248,8 +250,15 @@ class Sanitization:
 
                 Log.debug(f"\tFlat Region Interval (Inflection Points): ({inflection_indices[0] / globals.constants.sampling_frequency}, {inflection_indices[1] / globals.constants.sampling_frequency})", trial=trial)
 
-                mean_leading_gradient = np.mean(np.gradient(force_data[first_activation_index:inflection_indices[0]]))
-                mean_trailing_gradient = np.mean(np.gradient(force_data[inflection_indices[1]:last_activation_index]))
+                if inflection_indices[0] > first_activation_index + 1:
+                    mean_leading_gradient = np.mean(np.gradient(force_data[first_activation_index:inflection_indices[0]]))
+                else:
+                    mean_leading_gradient = 0  # Default value if gradient cannot be computed
+
+                if last_activation_index > inflection_indices[1] + 1:
+                    mean_trailing_gradient = np.mean(np.gradient(force_data[inflection_indices[1]:last_activation_index]))
+                else:
+                    mean_trailing_gradient = 0  # Default value if gradient cannot be computed
                 mean_edge_gradient = np.mean([mean_leading_gradient, -mean_trailing_gradient])
 
                 # left symmetric region not modified -> apply gradient modification before first activation
@@ -291,7 +300,6 @@ class Sanitization:
 
     def sanitize(self):
         """Sanitize the given pandas dataframe with feature-specific methods."""
-        self._purge_insufficient_neuron_data() # N
         self._purge_neuron_inconsistencies() # NI
         self._handle_measurement_decorrelation() # MD
         self._normalize_and_scale()

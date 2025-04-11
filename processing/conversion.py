@@ -3,6 +3,7 @@ from numpy.typing import NDArray
 from processing.types import DataTypeKeys, UnifiedSubjectData
 import os
 import shutil
+import math
 import numpy as np
 import pandas as pd
 import scipy.io
@@ -161,11 +162,11 @@ class Conversion:
 
             # only process force data if the MVC level is 100
             if mvc_level != 100:
-                trial_time = raw_data["SIGlength"][0][0]
+                trial_time = raw_data["SIGlength"][0][0].astype(np.float64)
                 compiled_mvc_data = np.concatenate(mvc_data, axis=0)
                 
-                time_length = np.round(2048 * trial_time)
-                shape = (int(time_length), len(compiled_mvc_data))
+                time_length = int(np.round(2048 * trial_time))
+                shape = (time_length, len(compiled_mvc_data))
                 activation_time = np.zeros(shape)
 
                 for neuron_index, neuron_firings in enumerate(compiled_mvc_data):

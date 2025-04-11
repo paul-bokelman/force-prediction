@@ -5,16 +5,17 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from keras.api.models import Sequential, load_model
-from keras.api.layers import Bidirectional, LSTM, Conv1D, Dense, Input, Reshape
+from keras.api.layers import LSTM, Dense, Input
 from keras.api.callbacks import EarlyStopping, ModelCheckpoint
-from processing.preprocessing import Preprocessing
+from processing.processing import Processing
 from globals.utils import Log
 import prediction.constants as constants
+import processing.constants
 
 class DirectPredictionModel:
     """Direct prediction model (DPM) architecture (LSTM) and methods for training and evaluation."""
-    def __init__(self, preprocessed_data: PreprocessedData, overwrite: bool = False):
-        self.data = preprocessed_data
+    def __init__(self, data: PreprocessedData, overwrite: bool = False):
+        self.data = data
         self.saved_model_path = os.path.join('prediction/', constants.saves_directory, constants.saved_model_name)
 
         # create the saves directory if it does not exist
@@ -28,22 +29,13 @@ class DirectPredictionModel:
         """Create an LSTM model for neuronal to force prediction."""
        
         model = Sequential([
-            Input(shape=self.data.input_shape), # input_shape: (T, N+1)
-
-            # short-term pattern detection
-            Conv1D(32, kernel_size=5, activation='relu', padding='same'),
-            Conv1D(32, kernel_size=5, activation='relu', padding='same'),
-
-            # long term context
-            Bidirectional(LSTM(128, return_sequences=True)), 
-            Dense(64, activation='relu'),
-
-            # output and reshape
-            Dense(1),
-            Reshape((-1,)) # shape: (T,)
+            # input layer
+            Input(shape=self.data.input_shape),
+            LSTM(256, return_sequences=True),
+            Dense(1)
         ])
-        
-        model.compile(optimizer='adam', loss='mse', metrics=['mae']) # compile the model
+
+        model.compile(optimizer='adam', loss='mse', metrics=['mae'])
         
         return model
     
@@ -61,8 +53,6 @@ class DirectPredictionModel:
             self.trained = True
             self.model = cast(Sequential, load_model(self.saved_model_path))
 
-        # self.model.summary() # print the model summary
-        
         return self.model
     
     def optionally_train(self, epochs: int = constants.training_epochs, batch_size: int = constants.training_batch_size):
@@ -74,15 +64,14 @@ class DirectPredictionModel:
             Log.info('Model is already trained. Skipping training...')
 
     def _train(self, epochs: int = constants.training_epochs, batch_size: int = constants.training_batch_size):
-        """Train and evaluate the LSTM model."""
-        
+        """Train and evaluate the LSTM model using a data generator."""
+
         # training callbacks
         callbacks = [
-            # stop training if validation loss does not improve for x epochs
             EarlyStopping(monitor='val_loss', patience=constants.early_stopping_patience, restore_best_weights=True),
-            ModelCheckpoint(self.saved_model_path, save_best_only=True, monitor='val_loss') # save the best model based on validation loss
+            ModelCheckpoint(self.saved_model_path, save_best_only=True, monitor='val_loss')
         ]
-        
+
         # train the model with callbacks and save the training history
         history = self.model.fit(
             self.data.X.train, self.data.y.train,
@@ -91,28 +80,62 @@ class DirectPredictionModel:
             validation_data=(self.data.X.val, self.data.y.val),
             callbacks=callbacks,
         )
-        
+
         return history
     
-    def predict(self, neuron_data: pd.Series, mvc: int) -> np.ndarray:
-        """Predict a force profile given neuron data"""
-        x = Preprocessing.preprocess_trial(np.array(list(neuron_data)), mvc)
-        force = self.model.predict(x) # preprocess the trial data to match model input
-        return force.flatten()
+    def overlap_average(self, predicted_windows, trial_length, window_size, stride):
+        """Reconstructs the full prediction from overlapping window predictions using overlap averaging."""
+        full_pred = np.zeros(trial_length)
+        weight_sum = np.zeros(trial_length)
 
-    def visualize_results(self):
-        """Visualize the model predictions vs actual force profiles."""
-        predictions = self.model.predict(self.data.X.test)
+        for i, window in enumerate(predicted_windows):
+            start = i * stride
+            end = start + window_size
 
-        plt.figure(figsize=(12, 6))
+            full_pred[start:end] += window.squeeze()
+            weight_sum[start:end] += 1
+
+        # Avoid division by zero
+        weight_sum[weight_sum == 0] = 1
+        return full_pred / weight_sum
+    
+    def predict(self, trial: pd.Series) -> np.ndarray:
+        """Predict a force profile given neuron data, accounting for stride and window size."""
+        neuron_data, mvc = trial['neuron_data'], trial['mvc_level']
         
-        # plot training history
-        plt.plot(self.data.y.test[:200], label='True Force')
-        plt.plot(predictions[:200], label='Predicted Force')
+        # Preprocess the trial data to match model input
+        x = Processing.preprocess_trial(np.array(list(neuron_data)), mvc)
+        
+        # Reconstruct the full prediction
+        trial_length = neuron_data.shape[1]
+        stride = processing.constants.stride
+        window_size = processing.constants.sequence_length
+    
+        predicted_windows = self.model.predict(x)
+        full_prediction = self.overlap_average(predicted_windows, trial_length, window_size, stride)
+        
+        return full_prediction
+    
+    def visualize_results(self, num_samples: int = 200):
+        """Visualize the model predictions vs actual force profiles, accounting for stride."""
+        predicted_windows = self.model.predict(self.data.X.test)
+        true_values = self.data.y.test
+
+        trial_length = self
+        stride = processing.constants.stride
+        window_size = processing.constants.sequence_length
+    
+        averaged_predictions = self.overlap_average(predicted_windows, trial_length, window_size, stride)
+        averaged_true = self.overlap_average(true_values, trial_length, window_size, stride)
+
+        # Plot a subset of the predictions and true values
+        plt.figure(figsize=(12, 6))
+        plt.plot(averaged_true[:num_samples].flatten(), label='True Force', color='red', alpha=0.7)
+        plt.plot(averaged_predictions[:num_samples].flatten(), label='Predicted Force', color='blue', alpha=0.7)
         plt.legend()
-        plt.title(f'Predicted Force')
+        plt.title('Predicted vs True Force Profiles')
         plt.xlabel('Time Steps')
         plt.ylabel('Force Value')
-        
+        plt.grid(True)
         plt.tight_layout()
         plt.show()
