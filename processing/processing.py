@@ -1,21 +1,29 @@
 from processing.types import PreprocessedData, PreprocessedDataSplit
 import numpy as np
 import pandas as pd
+from scipy.signal import butter, filtfilt
 from sklearn.model_selection import train_test_split
 from globals.utils import Log
 import processing.constants as constants
+import prediction.constants
 
 class Processing:
     """Preprocesses the neuronal and force data into sequences for model training."""
-    def __init__(self, df: pd.DataFrame) -> None:
+    def __init__(self, df: pd.DataFrame, model_info: dict = prediction.constants.models[prediction.constants.default_model_name]) -> None:
         self.df = df
         self.max_n_neurons: int = max([d.shape[0] for d in df['neuron_data']])
         self.max_activations: int = max([d.shape[1] for d in df['neuron_data']])
         self.max_force_len: int = max([len(d) for d in df['force_data']])
+        self.sequence_length, self.stride = model_info['sequence_length'], model_info['stride']
 
         # Ensure activations and force data lengths match
         if self.max_activations != self.max_force_len:
             raise ValueError("The number of activations and force data lengths must be equal.")
+        
+        if model_info['name'] != prediction.constants.default_model_name:
+            Log.info(f"Using {model_info['name']} presets (sl={self.sequence_length}, s={self.stride})")
+        else:
+            Log.info("Using default model presets ")
         
     @staticmethod
     def _create_sliding_windows(data: np.ndarray, sequence_length = constants.sequence_length, stride = constants.stride) -> np.ndarray:
@@ -42,8 +50,8 @@ class Processing:
             trial_data = np.concatenate([neuron_data, mvc_column], axis=1)  # shape: (time_steps, neurons + 1)
 
             # create sliding windows for neuron data and force data
-            neuron_windows = Processing._create_sliding_windows(trial_data)
-            force_windows = Processing._create_sliding_windows(force_data[:, np.newaxis])
+            neuron_windows = Processing._create_sliding_windows(trial_data, self.sequence_length, self.stride)
+            force_windows = Processing._create_sliding_windows(force_data[:, np.newaxis], self.sequence_length, self.stride)
 
             x_windows.extend(neuron_windows)
             y_windows.extend(force_windows.squeeze(axis=-1))
@@ -89,11 +97,18 @@ class Processing:
         """Postprocess the model prediction to match the original trial data."""
         neuron_data = np.array(trial['neuron_data'])
 
+        def butter_lowpass_filter(data, cutoff=5, fs=1000, order=4):
+            nyq = 0.5 * fs  # Nyquist Frequency
+            normal_cutoff = cutoff / nyq
+            b, a = butter(order, normal_cutoff, btype='low', analog=False)
+            return filtfilt(b, a, data)
+
         # find first and last activations
         first_activation_index: int = min([n for n in np.argmax(neuron_data == 1, axis=1) if n != 0])
         last_activation_index: int = max(neuron_data.shape[1] - np.array([n for n in np.argmax(neuron_data[:, ::-1] == 1, axis=1) if n != 0]) - 1)
 
         print(first_activation_index, last_activation_index)
+        predicted_force = butter_lowpass_filter(predicted_force)
 
         # clip leading/trailing predicted force data that has or will hit zero
         np.clip(predicted_force, a_min=0, a_max=np.inf, out=predicted_force)
@@ -101,5 +116,6 @@ class Processing:
         # Set all force values before the first activation and after the last activation to zero
         predicted_force[:first_activation_index] = 0
         predicted_force[last_activation_index + 1:] = 0
+
 
         return predicted_force
