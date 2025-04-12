@@ -1,5 +1,4 @@
-from typing import cast
-from processing.types import PreprocessedData
+from typing import Generator, cast
 import os
 import pandas as pd
 import numpy as np
@@ -12,17 +11,9 @@ import prediction.constants as constants
 
 class DirectPredictionModel:
     """Direct prediction model (DPM) architecture (LSTM) and methods for training and evaluation."""
-    def __init__(self, data: PreprocessedData, overwrite: bool = False, model_info: dict = constants.models[constants.default_model_name]):
-        self.data = data
-        self.model_info = model_info
-        self.sequence_length, self.stride = model_info['sequence_length'], model_info['stride']
-
-        if model_info['name'] != constants.default_model_name:
-            Log.info(f"Using {model_info['name']} presets (sl={self.sequence_length}, s={self.stride})")
-        else:
-            Log.info("Using default model presets ")
-
-        self.model_path = os.path.join('prediction/', constants.saves_directory, self.model_info['name'] + ".keras")
+    def __init__(self, processor: Processing, overwrite: bool = False):
+        self.processor = processor
+        self.model_path = os.path.join('prediction/', constants.saves_directory, self.processor.model_name + ".keras")
 
         # create the saves directory if it does not exist
         if not os.path.exists('prediction/' + constants.saves_directory):
@@ -35,7 +26,7 @@ class DirectPredictionModel:
         """Create an LSTM model for neuronal to force prediction."""
        
         model = Sequential([
-            Input(shape=self.data.input_shape),
+            Input(shape=(self.processor.sequence_length, self.processor.max_n_neurons + 1)), # (time_steps, features[neurons + mvc])
 
             # 2x-lstm
             # LSTM(128, return_sequences=True),
@@ -43,16 +34,16 @@ class DirectPredictionModel:
             # Dense(1),
 
             # 2x-bi-lstm
-            Bidirectional(LSTM(64, return_sequences=True)),
-            Dropout(0.2),
-            Bidirectional(LSTM(64, return_sequences=True)),
-            Dropout(0.2),
-            Dense(32, activation='relu'),
-            Dense(1)
+            # Bidirectional(LSTM(64, return_sequences=True)),
+            # Dropout(0.2),
+            # Bidirectional(LSTM(64, return_sequences=True)),
+            # Dropout(0.2),
+            # Dense(32, activation='relu'),
+            # Dense(1)
 
             # single-lstm
-            # LSTM(256, return_sequences=True),
-            # Dense(1)
+            LSTM(256, return_sequences=True),
+            Dense(1)
         ])
 
         model.compile(optimizer='adam', loss='mse', metrics=['mae'])
@@ -75,15 +66,15 @@ class DirectPredictionModel:
 
         return self.model
     
-    def optionally_train(self, epochs: int = constants.training_epochs, batch_size: int = constants.training_batch_size):
+    def optionally_train(self):
         """Train the model if it is not already trained."""
         if not self.trained:
             Log.info('Training the model...')
-            return self._train(epochs=epochs, batch_size=batch_size)
+            return self._train()
         else:
             Log.info('Model is already trained. Skipping training...')
 
-    def _train(self, epochs: int = constants.training_epochs, batch_size: int = constants.training_batch_size):
+    def _train(self):
         """Train and evaluate the LSTM model using a data generator."""
 
         # training callbacks
@@ -92,12 +83,17 @@ class DirectPredictionModel:
             ModelCheckpoint(self.model_path, save_best_only=True, monitor='val_loss')
         ]
 
+        windows_per_trial = (self.processor.max_activations - self.processor.sequence_length) // self.processor.stride + 1
+        train_windows = windows_per_trial * len(self.processor.train)
+        validation_windows = windows_per_trial * len(self.processor.val)
+
         # train the model with callbacks and save the training history
         history = self.model.fit(
-            self.data.X.train, self.data.y.train,
-            epochs=epochs,
-            batch_size=batch_size,
-            validation_data=(self.data.X.val, self.data.y.val),
+            self.processor.generator('train'),
+            steps_per_epoch=train_windows // constants.batch_size,
+            validation_data=self.processor.generator('val'),
+            validation_steps=validation_windows // constants.batch_size,
+            epochs=constants.epochs,
             callbacks=callbacks,
         )
 
@@ -109,8 +105,8 @@ class DirectPredictionModel:
         weight_sum = np.zeros(trial_length)
 
         for i, window in enumerate(predicted_windows):
-            start = i * self.stride
-            end = start + self.sequence_length
+            start = i * self.processor.stride
+            end = start + self.processor.sequence_length
 
             full_pred[start:end] += window.squeeze()
             weight_sum[start:end] += 1

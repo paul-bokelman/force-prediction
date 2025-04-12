@@ -19,19 +19,3 @@ class ISIStatistics:
     isi: np.floating
     std: np.floating
     cv: np.floating
-
-# ------------------------------- preprocessing ------------------------------ #
-
-
-@dataclass
-class PreprocessedDataSplit:
-    train: NDArray[np.float64]
-    test: NDArray[np.float64]
-    val: NDArray[np.float64]
-
-@dataclass
-class PreprocessedData:
-    X: PreprocessedDataSplit
-    y: PreprocessedDataSplit
-    input_shape: tuple[int, int]
-    output_dim: int
