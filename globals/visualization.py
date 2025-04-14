@@ -13,11 +13,11 @@ def visualize_trial(
         neuron_data: Optional[np.ndarray] = None,
         force_data: Optional[np.ndarray] = None,
         predicted_force: Optional[np.ndarray] = None,
-        output: Optional[str] = None, 
+        export_path: Optional[str] = None, 
         vmarkers: Optional[list[float]] = None, 
         hmarkers: Optional[list[float]] = None,
     ) -> None:
-    """Plot grid of raster plots with force overlays for a given trial. Optionally save the plot to a file and or apply markers."""
+    """Plot grid of raster plots with force overlays for a given trial. Optionally save the plot to a file and or apply markers. Visualization also removes neuron rows with no data."""
 
     # either neuron_data or force_data is None, we need df and all trial identifiers
     if (neuron_data is None or force_data is None) and (df is None or subject is None or mvc_level is None or trial_number is None):
@@ -42,7 +42,11 @@ def visualize_trial(
         plt.title(f"Visualizing Manual Data")
 
     force_data = cast(pd.Series, trial)["force_data"] if force_data is None else force_data
-    neuron_data = cast(pd.Series, trial)["neuron_data"] if neuron_data is None else neuron_data
+    neuron_data = cast(pd.Series, trial)["neuron_data"].copy() if neuron_data is None else neuron_data
+
+    # remove all rows with no activations from neuron_data
+    if neuron_data is not None and neuron_data.ndim > 1:
+        neuron_data = neuron_data[~np.all(neuron_data == 0, axis=1)]
 
     def plot_force_only(force_data: np.ndarray, time_values: np.ndarray) -> None:
         """Plots force data only"""
@@ -111,8 +115,8 @@ def visualize_trial(
     if hmarkers:
         for marker in hmarkers:
             plt.axhline(marker, color='black', linestyle='--')
-    if output:
-        plt.savefig(output)
+    if export_path:
+        plt.savefig(export_path)
 
 def visualize_subject(df: pd.DataFrame, subject: str):
     """Visualize all trials for a given subject"""

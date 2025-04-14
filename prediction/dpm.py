@@ -77,6 +77,8 @@ class DirectPredictionModel:
     def _train(self):
         """Train and evaluate the LSTM model using a data generator."""
 
+        Log.info(f"Training {self.processor.model_name} | {constants.epochs} Epochs | {constants.batch_size} Batch Size")
+
         # training callbacks
         callbacks = [
             EarlyStopping(monitor='val_loss', patience=constants.early_stopping_patience, restore_best_weights=True),
@@ -123,4 +125,4 @@ class DirectPredictionModel:
         predicted_windows = self.model.predict(x)
         full_prediction = self.overlap_average(predicted_windows, trial_length=neuron_data.shape[1])
         
-        return full_prediction
+        return full_prediction 

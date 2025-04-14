@@ -10,6 +10,14 @@ md_region_window = 2000 # the window size for region gradient calculation and co
 md_median_gradient_scaler = 3 # the scaling factor for the median gradient used in flat region detection
 md_region_tolerance = 0.7 # the relative tolerance for flat region gradient comparison
 md_symmetric_zeros_tolerance = 0.07 # the relative tolerance for areas in symmetries that are close to zero (relative to max value)
+gmd_maximum_nil_activation_windows = {
+    5: 10000,
+    10: 10000,
+    20: 15000,
+    40: 25000,
+    60: 25000,
+    100: 10000
+}  # maximum window size for sequence of empty neuron cols to be acceptable in time-steps (by mvc)
 md_mvc_gradient_scaling = {
     5: 5,
     10: 3,

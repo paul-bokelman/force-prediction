@@ -1,10 +1,13 @@
-from typing import Union
+from typing import Union, cast
 from processing.types import ISIStatistics
+import os
+import shutil
 import math
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 import globals.constants
+from globals.visualization import visualize_trial
 from globals.utils import Log, format_subject
 import processing.constants as constants
 
@@ -35,7 +38,6 @@ class Sanitization:
         for neuron in neuron_set:
             # skip the neuron if it contains no activations
             if np.isscalar(neuron) or np.all(neuron == 0) or neuron is None:
-                Log.warn(f"Invalid neuron data ({neuron}), skipping...")
                 continue
             
             isi = Sanitization._compute_neuron_isi(neuron)
@@ -140,7 +142,6 @@ class Sanitization:
         Log.info("Handling measurement correlation...")
         
         subjects = self.df['subject'].unique()
-
         self.df['force_inflection_indices'] = None
 
         # detect measurement decorrelation
@@ -283,6 +284,32 @@ class Sanitization:
 
                 self.df.at[index, 'force_data'] = force_data
 
+        # detect and purge gmd. This happens after main decorrelation detection because gmd detection relies on 'reliable' force profiles
+        for subject in subjects:
+            trials: pd.DataFrame = self.df[self.df['subject'] == subject]
+            for index, trial in trials.iterrows():
+                mvc_level, trial_number, neuron_data, force_data = trial["mvc_level"], trial["trial_number"], trial['neuron_data'], trial['force_data']
+
+                # gmd params and calculations
+                first_positive_read = np.argmax(force_data > 0)
+                last_positive_read = len(force_data) - 1 - np.argmax(force_data[::-1] > 0)
+                transposed_neuron_data = neuron_data.T
+                gmd_empty_sequence_count = 0
+
+                # detect gmd by finding unacceptable regions of no activations
+                for i in range(first_positive_read, last_positive_read):
+                    # column has no activations -> increment empty sequence count
+                    if not transposed_neuron_data[i].any():
+                        gmd_empty_sequence_count += 1
+                    else:
+                        gmd_empty_sequence_count = 0
+
+                    # too many empty activation cols -> purge
+                    if gmd_empty_sequence_count >= constants.gmd_maximum_nil_activation_windows[mvc_level]:
+                        Log.warn(f"\t{format_subject(trial)} Purging for GMD ({(i - gmd_empty_sequence_count)/2048}-{i/2048})")
+                        self.df.drop(index, inplace=True)
+                        break
+
         Log.success("Measurement decorrelation mitigated.")
 
     def show_purged(self):
@@ -298,10 +325,30 @@ class Sanitization:
         # Show rows that are different between original and current dataframes
         return merged[merged['_merge'] != 'both'][['subject', 'mvc_level', 'trial_number']]
 
-    def sanitize(self):
+    def sanitize(self, export = False):
         """Sanitize the given pandas dataframe with feature-specific methods."""
         self._purge_neuron_inconsistencies() # NI
         self._handle_measurement_decorrelation() # MD
         self._normalize_and_scale()
+
+        if export:
+            Log.info(f"Exporting {len(self.df)} entries and deleting previous")
+
+            # Ensure the output directory exists and is wiped
+            output_dir = "processing/out"
+            if os.path.exists(output_dir):
+                shutil.rmtree(output_dir)  # Remove the directory and its contents
+            os.makedirs(output_dir)  # Create a fresh directory
+
+            for trial in self.df.itertuples():
+                subject, trial_number, mvc_level = cast(str, trial.subject), cast(int, trial.trial_number), cast(int, trial.mvc_level)
+
+                if trial.neuron_data is None or trial.force_data is None:
+                    Log.warn(f"{format_subject(subject=subject, trial_number=trial_number, mvc_level=mvc_level)} Data missing, not exporting...")
+                    continue
+
+                export_path = f"{output_dir}/{subject}.{mvc_level}.{trial_number}.png"
+                visualize_trial(self.df, subject=subject, trial_number=trial_number, mvc_level=mvc_level, export_path=export_path)
+
         return self.df
     

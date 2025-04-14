@@ -1,4 +1,4 @@
-from typing import Literal, Generator
+from typing import Literal, Generator, cast
 import numpy as np
 import pandas as pd
 from scipy.signal import butter, filtfilt
@@ -85,26 +85,26 @@ class Processing:
     @staticmethod
     def preprocess_trial(neuron_data: np.ndarray, mvc: float) -> np.ndarray:
         """Preprocess a single trial of neuron data to be used as model input."""
-        # Transpose neuron data to shape (time_steps, neurons)
-        neuron_data = neuron_data.T  # Shape: (time_steps, neurons)
+        # transpose neuron data to shape (time_steps, neurons)
+        neuron_data = neuron_data.T  # (time_steps, neurons)
 
-        # Add MVC as an additional feature
-        mvc_column = np.full((neuron_data.shape[0], 1), mvc)  # Shape: (time_steps, 1)
-        trial_data = np.concatenate([neuron_data, mvc_column], axis=1)  # Shape: (time_steps, neurons + 1)
+        # add MVC as an additional feature
+        mvc_column = np.full((neuron_data.shape[0], 1), mvc)  # time_steps, 1)
+        trial_data = np.concatenate([neuron_data, mvc_column], axis=1)  # (time_steps, neurons + 1)
 
-        # Create sliding windows
+        # creating sliding windows
         trial_windows = Processing._create_sliding_windows(trial_data)
 
-        return trial_windows  # Shape: (num_windows, sequence_length, features)
+        return trial_windows  # (num_windows, sequence_length, features)
     
     def postprocess_prediction(self, trial: pd.Series, predicted_force: np.ndarray) -> np.ndarray:
         """Postprocess the model prediction to match the original trial data."""
         neuron_data = np.array(trial['neuron_data'])
 
         def butter_lowpass_filter(data, cutoff=5, fs=1000, order=4):
-            nyq = 0.5 * fs  # Nyquist Frequency
+            nyq = 0.5 * fs  # nyquist Frequency
             normal_cutoff = cutoff / nyq
-            b, a = butter(order, normal_cutoff, btype='low', analog=False)
+            b, a = cast(tuple[np.ndarray, ...], butter(order, normal_cutoff, btype='low', analog=False))
             return filtfilt(b, a, data)
 
         # find first and last activations
