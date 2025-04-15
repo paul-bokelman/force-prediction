@@ -3,7 +3,7 @@ import processing.constants
 
 # ----------------------- direct prediction model (dpm) ---------------------- #
 
-epochs = 5 # number of training epochs
+epochs = 1 # number of training epochs
 batch_size = 16 # batch size for training
 saves_directory = 'saves/' # directory for saving trained models
 default_model_name = 'model' # default name of the saved model

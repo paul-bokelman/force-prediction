@@ -34,16 +34,16 @@ class DirectPredictionModel:
             # Dense(1),
 
             # 2x-bi-lstm
-            # Bidirectional(LSTM(64, return_sequences=True)),
-            # Dropout(0.2),
-            # Bidirectional(LSTM(64, return_sequences=True)),
-            # Dropout(0.2),
-            # Dense(32, activation='relu'),
-            # Dense(1)
+            Bidirectional(LSTM(64, return_sequences=True)),
+            Dropout(0.2),
+            Bidirectional(LSTM(64, return_sequences=True)),
+            Dropout(0.2),
+            Dense(32, activation='relu'),
+            Dense(1)
 
             # single-lstm
-            LSTM(256, return_sequences=True),
-            Dense(1)
+            # LSTM(128, return_sequences=True),
+            # Dense(1)
         ])
 
         model.compile(optimizer='adam', loss='mse', metrics=['mae'])

@@ -101,7 +101,7 @@ class Processing:
         """Postprocess the model prediction to match the original trial data."""
         neuron_data = np.array(trial['neuron_data'])
 
-        def butter_lowpass_filter(data, cutoff=5, fs=1000, order=4):
+        def butter_lowpass_filter(data, cutoff=4, fs=1100, order=4):
             nyq = 0.5 * fs  # nyquist Frequency
             normal_cutoff = cutoff / nyq
             b, a = cast(tuple[np.ndarray, ...], butter(order, normal_cutoff, btype='low', analog=False))
@@ -111,15 +111,18 @@ class Processing:
         first_activation_index: int = min([n for n in np.argmax(neuron_data == 1, axis=1) if n != 0])
         last_activation_index: int = max(neuron_data.shape[1] - np.array([n for n in np.argmax(neuron_data[:, ::-1] == 1, axis=1) if n != 0]) - 1)
 
-        print(first_activation_index, last_activation_index)
         predicted_force = butter_lowpass_filter(predicted_force)
 
         # clip leading/trailing predicted force data that has or will hit zero
         np.clip(predicted_force, a_min=0, a_max=np.inf, out=predicted_force)
+        
+        # normalize the predicted force to the range [0, 1]
+        max_force = np.max(predicted_force)
+        if max_force > 0: # avoid division by zero
+            predicted_force = predicted_force / max_force
 
-        # Set all force values before the first activation and after the last activation to zero
+        # set all force values before the first activation and after the last activation to zero
         predicted_force[:first_activation_index] = 0
         predicted_force[last_activation_index + 1:] = 0
-
 
         return predicted_force

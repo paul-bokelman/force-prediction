@@ -76,6 +76,28 @@ class Sanitization:
 
         Log.success("Global statistics computed.")
 
+    def manually_purge(self, identifiers: list[str]):
+        """Manually purge trails given identifier: subject.mvc_level.trial_number"""
+        Log.info(f"Attempting to manually purge {len(identifiers)} trials...")
+
+        trials_not_found = []
+
+        for identifier in identifiers:
+            subject, mvc_level, trial_number = identifier.split('.')
+            trial = self.df[(self.df['subject'] == subject) & (self.df['mvc_level'] == int(mvc_level)) & (self.df['trial_number'] == int(trial_number))]
+
+            if len(trial) == 0:
+                trials_not_found.append(identifier)
+                continue
+
+            self.df.drop(trial.index, inplace=True) # drop the trial from the dataframe
+            Log.info(f"Purged {format_subject(subject=subject, trial_number=int(trial_number), mvc_level=int(mvc_level))}")
+
+        if len(trials_not_found) > 0:
+            Log.warn(f"Could not find the following trials: {', '.join(trials_not_found)}")
+
+        Log.success("Manual purging complete.")
+
     def _normalize_and_scale(self):
         """Scale force data and normalize neuron data"""
 
@@ -284,6 +306,11 @@ class Sanitization:
 
                 self.df.at[index, 'force_data'] = force_data
 
+        Log.success("Measurement decorrelation mitigated.")
+
+        gmd_purge_count = 0
+        prev_df_length = len(self.df)
+
         # detect and purge gmd. This happens after main decorrelation detection because gmd detection relies on 'reliable' force profiles
         for subject in subjects:
             trials: pd.DataFrame = self.df[self.df['subject'] == subject]
@@ -309,8 +336,8 @@ class Sanitization:
                         Log.warn(f"\t{format_subject(trial)} Purging for GMD ({(i - gmd_empty_sequence_count)/2048}-{i/2048})")
                         self.df.drop(index, inplace=True)
                         break
-
-        Log.success("Measurement decorrelation mitigated.")
+        
+        Log.success(f"Purged {prev_df_length - len(self.df)} entries with GMD. {len(self.df)} entries remaining.")
 
     def show_purged(self):
         """Show the difference between the given dataframe and the current dataframe."""
@@ -321,6 +348,8 @@ class Sanitization:
             how='outer',
             indicator=True
         )
+        
+        Log.info(f"Number of remaining entries after sanitization: {len(self.df)}")
         
         # Show rows that are different between original and current dataframes
         return merged[merged['_merge'] != 'both'][['subject', 'mvc_level', 'trial_number']]

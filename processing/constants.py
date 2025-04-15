@@ -27,6 +27,36 @@ md_mvc_gradient_scaling = {
     100: 1
 } # the scaling factor for artificial gradient computation based on mvc level
 
+manually_purged_trials = [
+    'nastos-jr.10.2',
+    'nastos-jr.10.3',
+    'nikos.60.2',
+    'nikos.60.3',
+    'dim_tselios.20.1',
+    'dim_tselios.20.3',
+    'dim_tselios.60.1',
+    'iatroudelis.5.3',
+    'iatroudelis.10.3',
+    'dwrotheos.60.3',
+    'anestis.40.3',
+    'manos.10.1',
+    'leonidas.5.1',
+    'leonidas.5.2',
+    'leonidas.5.3',
+    'leonidas.10.1',
+    'leonidas.10.2',
+    'leonidas.20.3',
+    'thanasis.40.1',
+    'giannatos.40.2',
+    'mpardas.5.2',
+    'konstantopoulos.40.1',
+    'paliaxanis.10.3',
+    'paliaxanis.20.2',
+    'pavlidis.60.3',
+    'mavrokefalidis.10.2',
+    'mavrokefalidis.60.3'
+]
+
 # -------------------------------- conversion -------------------------------- #
 data_dir = "data" # directory containing all subject data
 processed_data_dir: Callable[[str], str] = lambda name: f"{data_dir}/{name}/processed" # directory containing subject-specific processed data
