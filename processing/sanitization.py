@@ -9,7 +9,7 @@ from sklearn.preprocessing import MinMaxScaler
 import globals.constants
 from globals.visualization import visualize_trial
 from globals.utils import Log, format_subject
-import processing.constants as constants
+from processing import constants
 
 class Sanitization:
     """Remove or correct any errors in the data. This includes removing outliers, filling in missing values, and correcting any other errors in the data. Some entries are not recoverable and will be "purged"."""
@@ -364,10 +364,9 @@ class Sanitization:
             Log.info(f"Exporting {len(self.df)} entries and deleting previous")
 
             # Ensure the output directory exists and is wiped
-            output_dir = "processing/out"
-            if os.path.exists(output_dir):
-                shutil.rmtree(output_dir)  # Remove the directory and its contents
-            os.makedirs(output_dir)  # Create a fresh directory
+            if os.path.exists(constants.sanitization_output_dir):
+                shutil.rmtree(constants.sanitization_output_dir)  # Remove the directory and its contents
+            os.makedirs(constants.sanitization_output_dir)  # Create a fresh directory
 
             for trial in self.df.itertuples():
                 subject, trial_number, mvc_level = cast(str, trial.subject), cast(int, trial.trial_number), cast(int, trial.mvc_level)
@@ -376,7 +375,7 @@ class Sanitization:
                     Log.warn(f"{format_subject(subject=subject, trial_number=trial_number, mvc_level=mvc_level)} Data missing, not exporting...")
                     continue
 
-                export_path = f"{output_dir}/{subject}.{mvc_level}.{trial_number}.png"
+                export_path = f"{constants.sanitization_output_dir}/{subject}.{mvc_level}.{trial_number}.png"
                 visualize_trial(self.df, subject=subject, trial_number=trial_number, mvc_level=mvc_level, export_path=export_path)
 
         return self.df

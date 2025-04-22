@@ -2,7 +2,7 @@ from typing import Optional
 import functools
 import pandas as pd
 from termcolor import colored
-import globals.constants as constants
+from globals import constants
 
 def _compile_subject_args(trial: Optional[pd.Series] = None, subject: Optional[str] = None, trial_number: Optional[int] = None, mvc_level: Optional[int] = None) -> tuple:
     """Compiles subject specific arguments into a tuple for use in logging messages."""

@@ -3,12 +3,11 @@ from numpy.typing import NDArray
 from processing.types import DataTypeKeys, UnifiedSubjectData
 import os
 import shutil
-import math
 import numpy as np
 import pandas as pd
 import scipy.io
-import processing.constants as constants
 from globals.utils import Log
+from processing import constants
 
 class Conversion:
     """Converts and pre-processes the original data files into a format that is easier to work with. The data is cleaned up and converted into a single file present in the designated data directory."""

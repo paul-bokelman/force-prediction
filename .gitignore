@@ -7,4 +7,5 @@ test.ipynb
 venv/
 .vscode
 prediction/saves/*
+prediction/out/*
 .DS_Store

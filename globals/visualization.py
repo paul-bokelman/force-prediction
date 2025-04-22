@@ -3,7 +3,7 @@ from matplotlib.axes import Axes
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import globals.constants as constants
+from globals import constants
 
 def visualize_trial(
         df: Optional[pd.DataFrame] = None, 
