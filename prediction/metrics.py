@@ -41,9 +41,7 @@ class Metrics:
     
     def _r_squared(self, true: np.ndarray, predicted: np.ndarray) -> np.floating:
         """Compute R-squared (R2)"""
-        sse = np.sum(np.square(true - predicted))
-        tss = np.sum(np.square(true - np.mean(true)))
-        return 1 - (sse / tss)
+        return self._pearson_r(true, predicted) ** 2
     
     _r_squared.__metric_name__ = 'R2'
     
