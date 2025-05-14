@@ -1,5 +1,4 @@
 from prediction.types import ArchitectureName, ArchitectureTemporalContextWindows
-import os
 
 # ----------------------- direct prediction model (dpm) ---------------------- #
 
@@ -20,5 +19,3 @@ architecture_temporal_context_windows: ArchitectureTemporalContextWindows = {
 
 metrics_output_dir = "prediction/out" # directory for saving metrics comparison visualizations
 metrics_saved_tables_dir = f"{metrics_output_dir}/tables" # directory for saving metrics comparison tables
-
-print(os.getcwd())

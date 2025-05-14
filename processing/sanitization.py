@@ -308,7 +308,6 @@ class Sanitization:
 
         Log.success("Measurement decorrelation mitigated.")
 
-        gmd_purge_count = 0
         prev_df_length = len(self.df)
 
         # detect and purge gmd. This happens after main decorrelation detection because gmd detection relies on 'reliable' force profiles
