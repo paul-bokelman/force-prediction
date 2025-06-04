@@ -9,3 +9,4 @@ venv/
 prediction/saves/*
 prediction/out/*
 .DS_Store
+temp.md
