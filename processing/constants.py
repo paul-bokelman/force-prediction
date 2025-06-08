@@ -3,16 +3,12 @@ from typing import Callable
 # ---------------------------------- shared ---------------------------------- #
 mvc_levels = [5, 10, 20, 40, 60] # the total list of mvc levels to be considered (missing 100)
 data_dir = "processing/data" # directory containing all subject data
+dataset_path = f"{data_dir}/dataset.pkl" # path to the dataset file, which is modified by the various data processing steps
 
 # ------------------------------- sanitization ------------------------------- #
-processed_dataset_path = f"{data_dir}/sanitized-dataset.pkl"
+manually_selected_valid_trials_path = f"{data_dir}/valid-trials.json"
 sanitization_output_dir = "processing/out" # directory for saving sanitized data raster plots
 min_neurons = 6 # minimum number of neurons required for a trial to be considered valid (N)
-spike_smoothing_window = 500 # the window size for the median filter used to smooth the spike data
-md_region_window = 2000 # the window size for region gradient calculation and comparison
-md_median_gradient_scaler = 3 # the scaling factor for the median gradient used in flat region detection
-md_region_tolerance = 0.7 # the relative tolerance for flat region gradient comparison
-md_symmetric_zeros_tolerance = 0.07 # the relative tolerance for areas in symmetries that are close to zero (relative to max value)
 gmd_maximum_nil_activation_windows = {
     5: 10000,
     10: 10000,
@@ -21,14 +17,6 @@ gmd_maximum_nil_activation_windows = {
     60: 25000,
     100: 10000
 }  # maximum window size for sequence of empty neuron cols to be acceptable in time-steps (by mvc)
-md_mvc_gradient_scaling = {
-    5: 5,
-    10: 3,
-    20: 2,
-    40: 2,
-    60: 2,
-    100: 1
-} # the scaling factor for artificial gradient computation based on mvc level
 
 manually_purged_trials = [
     'nastos-jr.10.2',
@@ -64,7 +52,6 @@ manually_purged_trials = [
 processed_data_dir: Callable[[str], str] = lambda name: f"{data_dir}/{name}/processed" # directory containing subject-specific processed data
 raw_data_dir: Callable[[str], str] = lambda name: f"{data_dir}/{name}/raw" # directory containing subject-specific raw data
 min_spike_interval = 33 # minimum amount of time between spikes in milliseconds
-processed_dataset_path = f"{data_dir}/dataset.pkl"
 
 # ------------------------------- preprocessing ------------------------------ #
 sequence_length = 200 # length of the sliding window for preprocessing

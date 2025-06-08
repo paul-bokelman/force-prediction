@@ -1,4 +1,4 @@
-from typing import Union, Optional
+from typing import Union
 from numpy.typing import NDArray
 from processing.types import DataTypeKeys, UnifiedSubjectData
 import os
@@ -284,9 +284,8 @@ def _load_subject_data(subject: str):
 
 def save_dataframe(subjects: list[str] = fetch_subjects(), overwrite = False):
     """Construct and save dataframe from provided subjects (uses all if None)"""
-    print()
-    if os.path.exists(constants.processed_dataset_path) and not overwrite:
-        Log.warn(f"Dataset already exists at {constants.processed_dataset_path}. Use overwrite=True to overwrite.")
+    if os.path.exists(constants.dataset_path) and not overwrite:
+        Log.warn(f"Dataset already exists at {constants.dataset_path}. Use overwrite=True to overwrite.")
         return
 
     data: dict[str, UnifiedSubjectData] = {}
@@ -307,10 +306,4 @@ def save_dataframe(subjects: list[str] = fetch_subjects(), overwrite = False):
                 force_data = datums["force"] if "force" in datums else None
                 entries.append([subject, mvc_level, trial_number, neuron_data, force_data])
 
-    pd.DataFrame(entries, columns=columns).to_pickle(constants.processed_dataset_path)
-
-def get_dataframe(subjects: Optional[list[str]] = None) -> pd.DataFrame:
-    """Gets the saved dataframe dataset with processed entries filtered by subjects if provided."""
-    assert os.path.exists(constants.processed_dataset_path), "Dataset does not exist on disk"
-    df: pd.DataFrame = pd.read_pickle(constants.processed_dataset_path)
-    return df if subjects is None else df[df["subject"].isin(subjects)].reset_index(drop=True)
+    pd.DataFrame(entries, columns=columns).to_pickle(constants.dataset_path)

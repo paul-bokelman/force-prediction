@@ -3,9 +3,9 @@ from prediction.types import ArchitectureName
 import os
 import pandas as pd
 import numpy as np
-from keras.api.models import Sequential, load_model
-from keras.api.layers import LSTM, Dense, Input, Bidirectional, Dropout, Conv1D, Reshape
-from keras.api.callbacks import EarlyStopping, ModelCheckpoint
+from keras._tf_keras.keras.models import Sequential, load_model
+from keras._tf_keras.keras.layers import LSTM, Dense, Input, Bidirectional, Dropout, Conv1D, Reshape
+from keras._tf_keras.keras.callbacks import EarlyStopping, ModelCheckpoint
 from processing.processing import Processing
 from globals.utils import Log
 from prediction import constants

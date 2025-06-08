@@ -4,9 +4,11 @@ __pycache__/
 todo.md
 processing/out/*
 test.ipynb
-venv/
 .vscode
 prediction/saves/*
 prediction/out/*
 .DS_Store
 temp.md
+.venv/
+*.pkl
+.DS_Store

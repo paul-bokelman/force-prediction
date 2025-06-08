@@ -1,7 +1,5 @@
-from termcolor._types import Color
-
 logging = ['info', 'success', 'warn', 'error'] # select forms of logging (info, warn, error, success, debug)
-logging_colors: dict[str, Color] = {
+logging_colors = {
     'info': 'white',
     'success': 'green',
     'warn': 'yellow',

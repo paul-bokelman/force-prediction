@@ -6,6 +6,12 @@ from globals.utils import Log
 from processing import constants
 import prediction.constants
 
+class Preprocessor:
+    pass
+
+class Postprocessor:
+    pass
+
 class Processing:
     """Preprocesses the neuronal and force data into sequences for model training."""
     def __init__(self, df: pd.DataFrame, sequence_length: int = constants.sequence_length, stride: int = constants.stride) -> None:
