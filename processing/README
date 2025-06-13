@@ -1,3 +1,1 @@
-The sanitization directory contains the sanitization modules for the project. The sanitization code is responsible for structuring, cleaning, and purging parts and pieces of the data. The objective is to go from "bad" and noisy datum to a machine-learning-prepared dataset.
-
-Modified version of [MVC Analysis](https://github.com/paul-bokelman/mvc-analysis)
+This directory handles everything data processing related to the project. It includes scripts and modules for cleaning, transforming, and preparing data for machine learning models.
