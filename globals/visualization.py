@@ -3,6 +3,7 @@ from matplotlib.axes import Axes
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 from globals import constants
 
 def visualize_trial(
@@ -43,6 +44,8 @@ def visualize_trial(
 
     ax.set_ylabel("Motor Neuron")
     ax.set_xlabel("Time (s)")
+
+    assert ax is not None, "Invalid Axes"
 
     # conditionally set title based on whether trial data is available
     if trial is not None:
@@ -120,3 +123,40 @@ def visualize_subject(df: pd.DataFrame, subject: str):
     for _, trial in subject_data.iterrows():
         visualize_trial(df, subject, trial['mvc_level'], trial['trial_number'])
         plt.show()
+
+def visualize_spike_trains(spike_trains: np.ndarray, section: Optional[tuple[int, int]] = None, bw: bool = False, line_height: float = 0.5):
+    """Visualize spike trains as an image, scaling x axis by 2048."""
+    fig, ax = plt.subplots(figsize=(20, 6))
+
+    # section provided -> zoom into range
+    if section is not None:
+        start, end = section
+        spike_trains = spike_trains[:, start:end]
+
+    # spike_trains = np.clip(spike_trains, 0, None) #/ clip negative values to zero
+
+    # sort neurons by first activation (lowest index = earliest activation)
+    first_activations = np.argmax(spike_trains > 0, axis=1)
+    # neuron never fires -> set to large value so it sorts last
+    first_activations[np.all(spike_trains == 0, axis=1)] = spike_trains.shape[1] + 1
+    neuron_order = np.argsort(first_activations)
+    spike_trains = spike_trains[neuron_order]
+
+    #/ normalize spike trains to [0, 1] range for coloring
+    # max_val = np.max(spike_trains)
+    # min_val = np.min(spike_trains)
+    # norm_spikes = (spike_trains - min_val) / (max_val - min_val) if max_val > min_val else spike_trains
+
+    for i in range(spike_trains.shape[0]):
+        times = np.where(spike_trains[i] >= 0)[0]
+        times_scaled = times / 2048
+        magnitudes = spike_trains[i, times]
+        cmap = cm.get_cmap('plasma')
+        colors = [cmap(mag) for mag in magnitudes] if not bw else [(0, 0, 0, mag) for mag in magnitudes]
+
+        ax.eventplot(positions=[times_scaled], lineoffsets=i, colors=[colors], linelengths=line_height) # type: ignore
+
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Neurons")
+    ax.set_title("Spike Trains")
+    plt.show()
