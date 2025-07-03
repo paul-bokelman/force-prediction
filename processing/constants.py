@@ -4,7 +4,8 @@ from globals import constants
 # ---------------------------------- shared ---------------------------------- #
 mvc_levels = [5, 10, 20, 40, 60] # the total list of mvc levels to be considered (missing 100)
 data_dir = "processing/data" # directory containing all subject data
-dataset_path = f"{data_dir}/dataset.pkl" # path to the dataset file, which is modified by the various data processing steps
+subject_data_dir = f"{data_dir}/subjects" # directory containing all subject data
+dataset_path = f"{data_dir}/dataset.pkl" # dataset path that is manipulated by conversion and sanitization
 
 # ------------------------------- sanitization ------------------------------- #
 manually_selected_valid_trials_path = f"{data_dir}/valid-trials.json"
@@ -12,14 +13,17 @@ sanitization_output_dir = "processing/out" # directory for saving sanitized data
 min_neurons = 6 # minimum number of neurons required for a trial to be considered valid (N)
 
 # -------------------------------- conversion -------------------------------- #
-processed_data_dir: Callable[[str], str] = lambda name: f"{data_dir}/{name}/processed" # directory containing subject-specific processed data
-raw_data_dir: Callable[[str], str] = lambda name: f"{data_dir}/{name}/raw" # directory containing subject-specific raw data
+processed_data_dir: Callable[[str], str] = lambda name: f"{subject_data_dir}/{name}/processed" # directory containing subject-specific processed data
+raw_data_dir: Callable[[str], str] = lambda name: f"{subject_data_dir}/{name}/raw" # directory containing subject-specific raw data
 min_spike_interval = 33 # minimum amount of time between spikes in milliseconds
 
 # ------------------------------- preprocessing ------------------------------ #
+preprocessed_dataset_path = lambda identifier: f"{data_dir}/preprocessed/{identifier}.pkl" # path to a specific preprocessed dataset file
+
 sequence_length = 200 # length of the sliding window for preprocessing
 stride = sequence_length // 2 # stride for sliding window
-train_percentage, val_percentage, test_percentage = 0.8, 0.1, 0.1 # split percentages for training, validation, and test sets
+train_percentage, validation_percentage, test_percentage = 0.8, 0.1, 0.1 # split percentages for training, validation, and test sets
+batch_size = 32 # batch size for training
 
 bin_size = int(constants.sampling_frequency * 0.01) # bin size for binning the neuron data (2048 -> 1 second -> 1000ms*0.01 = 10ms)
 exponential_decay_lifetime = 20 # memory decay rate for neuronal spike data (in milliseconds), 5 -> signal gone in 5ms

@@ -160,15 +160,17 @@ class Sanitizer:
                 self.df.at[index, 'neuron_data'] = neuron_data
 
 
-    def sanitize(self):
+    def sanitize(self, override: bool = False) -> pd.DataFrame:
         """Sanitize the current dataframe and optionally export the modified dataframe as a pkl file."""
         self._purge_insufficient_neuron_data() # remove entries that do not have enough neurons
         self._purge_neuron_inconsistencies() # remove entries that don't align with the global average firing distance
         self._trim_decorrelation() # trim all leading and trailing force values past the first and last neuron activation respectively
-        
-        # save the sanitized dataframe
-        self.df.reset_index(drop=True, inplace=True)
-        self.df.to_pickle(constants.dataset_path)
+
+        # save the sanitized dataframe if specified
+        if override:
+            self.df.reset_index(drop=True, inplace=True)
+            self.df.to_pickle(constants.dataset_path)
+
         Log.success(f"Sanitized dataset saved to {constants.dataset_path}")
         Log.info(f"Sanitized dataset contains {len(self.df)} entries after sanitization.")
         return self.df

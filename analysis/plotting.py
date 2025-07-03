@@ -1,10 +1,19 @@
 from typing import cast, Optional
+import io
+import base64
 from matplotlib.axes import Axes
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from globals import constants
+
+def b64_encode_plot():
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png")
+    plt.close()
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode("utf-8")
 
 def visualize_trial(
         df: Optional[pd.DataFrame] = None, 
@@ -16,7 +25,8 @@ def visualize_trial(
         predicted_force: Optional[np.ndarray] = None,
         export_path: Optional[str] = None, 
         ax: Optional[Axes] = None,
-        show_legend: bool = False
+        show_legend: bool = False,
+        encode: Optional[bool] = False
 ):
     """Plot grid of raster plots with force overlays for a given trial. Optionally save the plot to a file and or apply markers. Visualization also removes neuron rows with no data."""
 
@@ -116,6 +126,10 @@ def visualize_trial(
 
     if export_path:
         plt.savefig(export_path)
+    if encode:
+        return b64_encode_plot()
+    else:
+        plt.show()
 
 def visualize_subject(df: pd.DataFrame, subject: str):
     """Visualize all trials for a given subject"""
@@ -159,4 +173,30 @@ def visualize_spike_trains(spike_trains: np.ndarray, section: Optional[tuple[int
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Neurons")
     ax.set_title("Spike Trains")
+    
     plt.show()
+
+def visualize_model_performance(
+        history: dict[str, list[float]], 
+        export_path: Optional[str] = None, 
+):
+    """Visualize training and validation loss/accuracy over epochs."""
+    _, ax = plt.subplots(figsize=(10, 6))
+    epochs = range(1, len(history['loss']) + 1)
+
+    # plot loss
+    ax.plot(epochs, history['loss'], label='Training Loss', color='blue')
+    ax.plot(epochs, history['val_loss'], label='Validation Loss', color='orange')
+
+    # plot accuracy if available
+    if 'accuracy' in history:
+        ax.plot(epochs, history['accuracy'], label='Training Accuracy', color='green')
+        ax.plot(epochs, history['val_accuracy'], label='Validation Accuracy', color='red')
+
+    ax.set_xlabel('Epochs')
+    ax.set_ylabel('Loss / Accuracy')
+    ax.set_title('Model Performance Over Epochs')
+    ax.legend()
+
+    if export_path:
+        plt.savefig(export_path)

@@ -5,10 +5,12 @@ todo.md
 processing/out/*
 test.ipynb
 .vscode
-prediction/saves/*
+prediction/weights/*
 prediction/out/*
 .DS_Store
 temp.md
 .venv/
 *.pkl
 .DS_Store
+*/logs/*
+notes

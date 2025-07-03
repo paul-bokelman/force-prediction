@@ -11,14 +11,14 @@ from processing import constants
 
 def fetch_subjects() -> list[str]:
     """Fetches the list of subjects from the data directory."""
-    subjects = [subject for subject in os.listdir(constants.data_dir) if os.path.isdir(os.path.join(constants.data_dir, subject))]
+    subjects = [subject for subject in os.listdir(constants.subject_data_dir) if os.path.isdir(os.path.join(constants.subject_data_dir, subject))]
     return subjects
 
 def cleanup_data(subjects: list[str] = fetch_subjects()):
     """Cleans up the data directory by moving all files from the data electrode folder to a raw folder in the subject's directory. All other files and folders in the subject's directory are removed. The subject folder is then renamed to be all lowercase with dashes in place of spaces."""
 
     for subject in subjects:
-        subject_dir = os.path.join(constants.data_dir, subject)
+        subject_dir = os.path.join(constants.subject_data_dir, subject)
 
         if os.path.isdir(subject_dir):
             raw_dir = constants.raw_data_dir(subject)
@@ -85,7 +85,7 @@ def cleanup_data(subjects: list[str] = fetch_subjects()):
 
             # rename the subject folder to be all lowercase and have dashes in place of spaces
             new_subject_folder = subject.lower().replace(" ", "-")
-            new_subject_dir = os.path.join(constants.data_dir, new_subject_folder)
+            new_subject_dir = os.path.join(constants.subject_data_dir, new_subject_folder)
             os.rename(subject_dir, new_subject_dir)
 
             Log.success(f"Cleaned up and renamed {subject} to {new_subject_folder}")

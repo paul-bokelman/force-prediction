@@ -11,7 +11,7 @@ import tkinter.messagebox as messagebox
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from globals.utils import Log
 from processing import constants
-from globals.visualization import visualize_trial
+from analysis.plotting import visualize_trial
 import globals.constants as g_constants
 
 df: pd.DataFrame = pd.read_pickle(constants.dataset_path) # get the saved dataset`
