@@ -1,5 +1,6 @@
 from typing import Optional
 import os
+import json
 import pandas as pd
 from processing import constants
 
@@ -15,3 +16,8 @@ def get_dataframe(path: str = constants.dataset_path , subjects: Optional[list[s
         return df if subjects is None else df[df["subject"].isin(subjects)].reset_index(drop=True)
     except Exception:
         return pd.DataFrame()
+    
+def get_subject_mappings() -> dict[str, int]:
+    """Returns a mapping of subject names to unique integer IDs."""
+    with open(constants.subject_mappings_path, 'r') as f:
+        return json.load(f)

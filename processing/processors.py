@@ -1,5 +1,6 @@
-from typing import Literal, Generator, cast
-from prediction.tuning import PreprocessingHyperparameters
+from typing import Literal, cast
+from processing.types import DataGenerator
+from prediction.tuning import Hyperparameters
 import os
 import numpy as np
 import pandas as pd
@@ -7,24 +8,25 @@ from scipy.signal import butter, filtfilt, resample
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from numpy.lib.stride_tricks import sliding_window_view
 from globals.utils import Log
-from processing import constants, utils
+from processing import constants
+from processing.utils import get_subject_mappings, get_dataframe
 
 type DatasetId = Literal['train', 'val', 'test']
 
 class Preprocessor:
-    def __init__(self, params: PreprocessingHyperparameters) -> None:
-        self.hash = params.hash() # get the hash associated with the preprocessing parameters
-        self.df = utils.get_dataframe(constants.preprocessed_dataset_path(self.hash)) #/ .sample(frac=1, random_state=42).reset_index(drop=True) # shuffle trials 
+    def __init__(self, hyperparameters: Hyperparameters) -> None:
+        self.hash = hyperparameters.preprocessing.hash() # get the hash associated with the preprocessing parameters
+        self.df = get_dataframe(constants.preprocessed_dataset_path(self.hash))
 
-        self.sequence_length = params.sequence_length
-        self.stride = params.stride
-        self.train_percentage = params.train_percentage
-        self.test_percentage = params.test_percentage
-        self.validation_percentage = params.validation_percentage
-        self.bin_size = params.bin_size
-        self.exponential_decay_lifetime = params.exponential_decay_lifetime
-        self.size_amplification_factor = params.size_amplification_factor
-        self.batch_size = params.batch_size
+        self.sequence_length = hyperparameters.training.sequence_length
+        self.stride = hyperparameters.training.stride
+        self.train_percentage = hyperparameters.training.train_percentage
+        self.test_percentage = hyperparameters.training.test_percentage
+        self.validation_percentage = hyperparameters.training.validation_percentage
+        self.batch_size = hyperparameters.training.batch_size
+        self.bin_size = hyperparameters.preprocessing.bin_size
+        self.exponential_decay_lifetime = hyperparameters.preprocessing.exponential_decay_lifetime
+        self.size_amplification_factor = hyperparameters.preprocessing.size_amplification_factor
 
     @staticmethod
     def _bin_spikes(trains: np.ndarray , bin_size: int = constants.bin_size) -> np.ndarray:
@@ -39,7 +41,7 @@ class Preprocessor:
     def _decay_spikes(trains: np.ndarray, tau: float = constants.exponential_decay_lifetime) -> np.ndarray:
         """Applies an exponential decay filter to the incoming spike train data."""
         filtered_train = np.zeros_like(trains)
-        alpha = np.exp(-1 / tau)
+        alpha = np.exp(-1 / tau) if tau > 0 else 0 # alpha is the decay factor, 0 means no decay
         filtered_train[0, :] = trains[0, :]
         for t in range(1, trains.shape[0]):
             filtered_train[t, :] = filtered_train[t-1, :] * alpha + trains[t, :]
@@ -69,10 +71,10 @@ class Preprocessor:
         return Preprocessor._normalize_spikes(amplified_train)
     
     @staticmethod
-    def normalize_force(force_data: np.ndarray) -> np.ndarray:
+    def _normalize_force(force_data: np.ndarray) -> np.ndarray:
         """Normalizes the force data to the range [0, 1] based on the maximum value."""
-        max_force = np.max(force_data)
-        assert max_force >= 0, "Force data must contain non-negative values for normalization"
+        max_force: np.floating = np.max(force_data)
+        assert max_force > 0, "Max force must be greater than 0 to avoid division by zero"
         return force_data / max_force
 
     def process_force(self, force_data: np.ndarray) -> np.ndarray:
@@ -83,19 +85,34 @@ class Preprocessor:
         
         # down-sample the force data
         ds_force: np.ndarray = cast(np.ndarray, resample(force_data, num=len(force_data) // self.bin_size))
-        return Preprocessor.normalize_force(ds_force)
+        return Preprocessor._normalize_force(ds_force)
     
-    def generator(self, dataset_id: DatasetId) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
+    def generator(self, dataset_id: DatasetId) -> DataGenerator:
         assert self.previously_preprocessed, "Data must be preprocessed before using generator"
         dataset = self._get_dataset(dataset_id) # conditionally choose data based on the dataset type
-        x_batch, y_batch = [], [] # store current batches
+        
+        x_batch: dict[str, list] = {"neural_input": [], "subject_id": []} # batch of neuron data windows and subject ids
+        y_batch: list[np.ndarray] = [] # batch of force data windows
+
+        def reset_batch():
+            """Returns empty batch representations."""
+            return {"neural_input": [], "subject_id": []}, []
+        
+        def shuffled_batches(x_batch: dict[str, list], y_batch: list[np.ndarray]) -> tuple[dict[str, np.ndarray], np.ndarray]:
+            """Shuffles the batches and returns them as numpy arrays."""
+            indices = np.arange(len(x_batch["neural_input"]))
+            np.random.shuffle(indices)
+            shuffled_neural_inputs = np.array(x_batch["neural_input"])[indices]
+            shuffled_subject_ids = np.array(x_batch["subject_id"])[indices]
+            shuffled_force_data = np.array(y_batch)[indices]
+            return {"neural_input": shuffled_neural_inputs, "subject_id": shuffled_subject_ids}, shuffled_force_data
 
         while True:
             for trial in dataset.itertuples():
-
                 # extract neuron data, force data, and MVC from the trial
                 neuron_data = np.array(trial.neuron_data).T  # (time_steps, neurons)
                 force_data = np.array(trial.force_data)  # (time_steps,)
+                subject_id = trial.subject
                 time_steps, neurons = neuron_data.shape
 
                 # ensure the trial has enough data for at least one sliding window
@@ -109,22 +126,19 @@ class Preprocessor:
 
                 for x_window, y_window in zip(x, y):
                     # add windows to the batch
-                    x_batch.append(x_window)
+                    x_batch["neural_input"].append(x_window)
+                    x_batch["subject_id"].append(subject_id)  # assuming subject is a scalar id
                     y_batch.append(y_window)
 
                     # yield batch when size is reached
                     if len(x_batch) == self.batch_size:
-                        indices = np.arange(len(x_batch))
-                        np.random.shuffle(indices) # shuffle the indices for randomness
-                        yield np.array(x_batch)[indices], np.array(y_batch)[indices]
-                        x_batch, y_batch = [], [] # reset the batch
+                        yield shuffled_batches(x_batch, y_batch) # yield a shuffled version of the batch
+                        x_batch, y_batch = reset_batch()  # reset the batch after yielding
 
             # handle remaining data in the batch
             if x_batch:
-                indices = np.arange(len(x_batch))
-                np.random.shuffle(indices)  # shuffle the indices for randomness
-                yield np.array(x_batch)[indices], np.array(y_batch)[indices]
-                x_batch, y_batch = [], [] # reset the batch
+                yield shuffled_batches(x_batch, y_batch)
+                x_batch, y_batch = reset_batch()  # reset the batch after yielding
 
     def preprocess(self, compute_baseline: bool = False, overwrite: bool = False):
         """Preprocess the sanitized data in the following ways: bin, apply exponential decay filter, and normalize spike trains, down-sample and normalize force and include MVC as a feature"""
@@ -134,11 +148,14 @@ class Preprocessor:
         
         Log.info(f"[{self.hash}] Preprocessing data...")
         
-        data = utils.get_dataframe(constants.dataset_path)  # ensure the original dataset is loaded
+        data = get_dataframe(constants.dataset_path)  # ensure the original dataset is loaded
+        subject_mappings = get_subject_mappings()
 
+        subjects = data["subject"].map(lambda x: subject_mappings[x])  # map subjects to their ids
         modified_trains = data["neuron_data"].map(lambda x: self._process_spike_trains(x))
         modified_forces = data["force_data"].map(lambda x: self.process_force(x))
         max_neurons = max([t.shape[0] for t in modified_trains]) + 1 # add +1 for mvc level addition
+        self.n_subjects = len(subject_mappings)
 
         # padding and concatenating the neuron data with MVC level
         for index, (spike_train, mvc_level) in enumerate(zip(modified_trains, data["mvc_level"].values)):
@@ -149,7 +166,7 @@ class Preprocessor:
             modified_trains[index] = np.concatenate(constituents, axis=0)
 
         # create a new dataframe with preprocessed data and save to disk
-        preprocessed_df = pd.DataFrame({"neuron_data": modified_trains, "force_data": modified_forces })
+        preprocessed_df = pd.DataFrame({"subject": subjects, "neuron_data": modified_trains, "force_data": modified_forces })
 
         # optionally compute baseline metrics for the preprocessed data
         if compute_baseline:
@@ -173,7 +190,7 @@ class Preprocessor:
         self.df = preprocessed_df  # update the internal dataframe
         Log.info(f"[{self.hash}] Preprocessing complete")
     
-    def get_generators(self) -> tuple[Generator[tuple[np.ndarray, np.ndarray], None, None], ...]:
+    def get_generators(self) -> tuple[DataGenerator, DataGenerator, DataGenerator]:
         """Returns all generators in the order: train, val, test"""
         return (self.generator('train'), self.generator('val'), self.generator('test'))
     
@@ -227,50 +244,23 @@ class Preprocessor:
     def input_shape(self) -> tuple[int, int]:
         """Returns the input shape of the preprocessed data."""
         assert self.previously_preprocessed, "Data must be preprocessed before accessing max neurons"
-        return (self.sequence_length,max([x.shape[0] for x in self.df["neuron_data"]]))
+        n_features = max([x.shape[0] for x in self.df["neuron_data"]])
+        return (self.sequence_length, n_features)
 
 class Postprocessor:
     @staticmethod
-    def overlap_average(sequence: np.ndarray, time_steps: int, sequence_length: int, stride: int) -> np.ndarray:
+    def overlap_average(sequence: np.ndarray, time_steps: int, stride: int) -> np.ndarray:
         """Reconstructs the full prediction from overlapping window predictions using overlap averaging."""
-        output = np.zeros((time_steps,))
-        count = np.zeros((time_steps,))
+        sequence = sequence.squeeze() # ensure the sequence is 2D
+        averaged_sequence = np.zeros(time_steps)
+        averaged_sequence[:stride] = sequence[0, :stride] # copy the first window directly
 
-        for i in range(sequence.shape[0]):
-            start = i * stride  
-            end = start + sequence_length
-            output[start:end] += sequence[i, :, 0]
-            count[start:end] += 1
+        # iterate over the sequence windows and average the overlapping parts
+        for index, stride_start in enumerate(range(stride, time_steps - stride, stride)):
+            # last window -> copy the remaining values directly (no averaging)
+            if index == sequence.shape[0] - 1:
+                averaged_sequence[stride_start:] = sequence[index, -(time_steps - stride_start):]
+                break
+            averaged_sequence[stride_start:stride_start+stride] = (sequence[index][stride:] + sequence[index+1][:stride]) / 2
 
-        count[count == 0] = 1 # avoid division by zero
-        return output / count
-
-    @staticmethod
-    def smooth_and_normalize(neuron_data: np.ndarray, predicted_force: np.ndarray) -> np.ndarray:
-        """Postprocess the model prediction to match the original trial data."""
-
-        def butter_lowpass_filter(data, cutoff=4, fs=1100, order=4):
-            nyq = 0.5 * fs  # nyquist Frequency
-            normal_cutoff = cutoff / nyq
-            b, a = cast(tuple[np.ndarray, ...], butter(order, normal_cutoff, btype='low', analog=False))
-            return filtfilt(b, a, data)
-
-        # find first and last activations
-        first_activation_index: int = min([n for n in np.argmax(neuron_data == 1, axis=1) if n != 0])
-        last_activation_index: int = max(neuron_data.shape[1] - np.array([n for n in np.argmax(neuron_data[:, ::-1] == 1, axis=1) if n != 0]) - 1)
-
-        predicted_force = butter_lowpass_filter(predicted_force)
-
-        # clip leading/trailing predicted force data that has or will hit zero
-        np.clip(predicted_force, a_min=0, a_max=np.inf, out=predicted_force)
-        
-        # normalize the predicted force to the range [0, 1]
-        max_force = np.max(predicted_force)
-        if max_force > 0: # avoid division by zero
-            predicted_force = predicted_force / max_force
-
-        # set all force values before the first activation and after the last activation to zero
-        predicted_force[:first_activation_index] = 0
-        predicted_force[last_activation_index + 1:] = 0
-
-        return predicted_force
+        return averaged_sequence

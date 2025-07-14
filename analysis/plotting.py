@@ -23,6 +23,7 @@ def visualize_trial(
         neuron_data: Optional[np.ndarray] = None,
         force_data: Optional[np.ndarray] = None,
         predicted_force: Optional[np.ndarray] = None,
+        title: Optional[str] = None,
         export_path: Optional[str] = None, 
         ax: Optional[Axes] = None,
         show_legend: bool = False,
@@ -57,11 +58,14 @@ def visualize_trial(
 
     assert ax is not None, "Invalid Axes"
 
-    # conditionally set title based on whether trial data is available
-    if trial is not None:
-        ax.set_title(f"{trial['subject']} | Trial {trial['trial_number']} | {trial['mvc_level']}% MVC")
+    if title is not None:
+        ax.set_title(title)
     else:
-        ax.set_title(f"Visualizing Manual Data")
+        # conditionally set title based on whether trial data is available
+        if trial is not None:
+            ax.set_title(f"{trial['subject']} | Trial {trial['trial_number']} | {trial['mvc_level']}% MVC")
+        else:
+            ax.set_title(f"Visualizing Manual Data")
 
     force_data = cast(pd.Series, trial)["force_data"] if force_data is None else force_data
     neuron_data = cast(pd.Series, trial)["neuron_data"].copy() if neuron_data is None else neuron_data

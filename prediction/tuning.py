@@ -1,36 +1,22 @@
+from typing import Any
+from prediction.types import LossFunction
 from dataclasses import dataclass, field
 import os
 import hashlib
 import json
-from keras._tf_keras.keras.layers import Layer, LSTM, Dense, Input, GRU, Bidirectional
+from keras._tf_keras.keras.layers import Layer, LSTM, Dense, Input, GRU, Bidirectional, TimeDistributed, Embedding, RepeatVector, Concatenate
 import prediction.constants
 import processing.constants
 
+losses: list[LossFunction] = ["mse", "mae", "huber"]
+
 @dataclass
 class PreprocessingHyperparameters:
-    sequence_length: int = processing.constants.sequence_length
-    stride: int = processing.constants.stride
-    train_percentage: float = processing.constants.train_percentage
-    test_percentage: float = processing.constants.test_percentage
-    validation_percentage: float = processing.constants.validation_percentage
     bin_size: int = processing.constants.bin_size
     exponential_decay_lifetime: float = processing.constants.exponential_decay_lifetime
     size_amplification_factor: float = processing.constants.size_amplification_factor
-    batch_size: int = processing.constants.batch_size
-
-    def hash(self) -> str:
-        """Return a hash representation of the preprocessing hyperparameters."""
-
-        # only consider the long-term storage hyperparameters for hashing
-        string_representation = json.dumps({ "bin_size": self.bin_size,
-            "exponential_decay_lifetime": self.exponential_decay_lifetime,
-            "size_amplification_factor": self.size_amplification_factor,
-            "batch_size": self.batch_size },
-            sort_keys=True
-        )
-        return hashlib.sha256(string_representation.encode()).hexdigest()[:10]
     
-    def full_hash(self) -> str:
+    def hash(self) -> str:
         """Return a full hash representation of the preprocessing hyperparameters."""
         string_representation = json.dumps(vars(self), sort_keys=True)
         return hashlib.sha256(string_representation.encode()).hexdigest()[:10]
@@ -39,8 +25,15 @@ class PreprocessingHyperparameters:
 class TrainingHyperparameters:
     epochs: int = prediction.constants.epochs
     early_stopping_patience: int = prediction.constants.early_stopping_patience
+    sequence_length: int = prediction.constants.sequence_length
+    stride: int = prediction.constants.stride
+    train_percentage: float = prediction.constants.train_percentage
+    test_percentage: float = prediction.constants.test_percentage
+    validation_percentage: float = prediction.constants.validation_percentage
+    subject_embedding_dimension: int = prediction.constants.subject_embedding_dimension
+    batch_size: int = prediction.constants.batch_size
     use_tensorboard: bool = True
-    loss: str = 'mse'
+    loss: LossFunction = 'mse'
 
     def hash(self) -> str:
         """Return a hash representation of the training hyperparameters."""
@@ -64,12 +57,24 @@ class ModelCandidate:
 
         return formatted_string
     
+    def to_dict(self) -> dict[str, Any]:
+        """Return a dictionary representation of the model candidate."""
+        return {
+            "identifier": self.identifier,
+            "architecture": Architecture.string_representation(self.architecture),
+            "hyperparameters": {
+                "preprocessing": vars(self.hyperparameters.preprocessing),
+                "training": vars(self.hyperparameters.training)
+            },
+            "version": self.version
+        }
+    
     def hash(self) -> str:
         """Return a hash representation of the model candidate."""
         string_representation = (
             self.identifier
-            + Architectures.hash(self.architecture)
-            + self.hyperparameters.preprocessing.full_hash()
+            + Architecture.hash(self.architecture)
+            + self.hyperparameters.preprocessing.hash()
             + self.hyperparameters.training.hash()
         )
         
@@ -84,12 +89,16 @@ class ModelCandidate:
             return False
         return all(os.path.exists(os.path.join(candidate_dir, fname)) for fname in required_files)
 
-class Architectures:
+class Architecture:
     """Reuseable model architectures for different candidates."""
 
     @staticmethod
     def LSTM(units: int) -> list[Layer]:
         return [LSTM(units, return_sequences=True)]
+    
+    @staticmethod 
+    def DualLSTM(units: int) -> list[Layer]:
+        return [LSTM(units, return_sequences=True), LSTM(units, return_sequences=True)]
     
     @staticmethod
     def GRU(units: int) -> list[Layer]:
@@ -104,40 +113,70 @@ class Architectures:
         return [Bidirectional(GRU(units, return_sequences=True))]
     
     @staticmethod
-    def GRU_LSTM(gru_units: int, lstm_units: int) -> list[Layer]:
-        return [GRU(gru_units, return_sequences=True), LSTM(lstm_units, return_sequences=True)]
+    def GRU_LSTM(units: int) -> list[Layer]:
+        return [GRU(units, return_sequences=True), LSTM(units, return_sequences=True)]
     
     @staticmethod
-    def construct(input_shape: tuple[int,...], architecture: list[Layer]) -> list[Layer]:
+    def from_config(identifier: str, units: int) -> list[Layer]:
+        """Configures a partial architecture based on the identifier and units."""
+        assert identifier in Architecture.__dict__, f"Unknown architecture identifier: {identifier}"
+        return Architecture.__dict__[identifier](units)
+    
+    @staticmethod
+    def construct(neural_input_shape: tuple[int,...], n_subjects: int, architecture: list[Layer], subject_embedding_dimension: int) -> tuple:
         """Constructs the full model architecture."""
-        return [
-            Input(shape=input_shape), *architecture, Dense(1)]
+        sequence_length, features = neural_input_shape
+        
+        neural_input = Input(shape=(sequence_length, features), name='neural_input')
+        subject_input = Input(shape=(), dtype='int8', name='subject_id') # scalar id per sample
+
+        # subject embedding layer
+        subject_embedding = Embedding(input_dim=n_subjects, output_dim=subject_embedding_dimension)(subject_input)
+        subject_embedding = RepeatVector(sequence_length)(subject_embedding)  # shape: (batch_size, seq_len, embedding_dim)
+
+        # concatenate embedding with neural input
+        x = Concatenate(axis=-1)([neural_input, subject_embedding])  # shape: (batch_size, seq_len, input_dim + embedding_dim)
+
+        # apply the architecture layers
+        for layer in architecture:
+            assert isinstance(layer, Layer), f"Invalid layer type: {type(layer)}. Expected a Keras Layer."
+            x = layer(x)
+
+        output = TimeDistributed(Dense(1))(x)
+
+        return [neural_input, subject_input], output
     
     @staticmethod
     def hash(architecture: list[Layer]) -> str:
         """Return a hash representation of the architecture."""
-        return hashlib.sha256(''.join([layer.__class__.__name__.lower() for layer in architecture]).encode()).hexdigest()[:8]
+        return hashlib.sha256(Architecture.string_representation(architecture).encode()).hexdigest()[:8]
     
-candidates: list['ModelCandidate'] = [ #todo: unique architectures need to change hash
-    ModelCandidate(version=1, architecture=Architectures.LSTM(units=32)),
-    ModelCandidate(version=2, architecture=Architectures.LSTM(units=64)),
-    ModelCandidate(version=3, architecture=Architectures.LSTM(units=128)),
-    ModelCandidate(
-        architecture=Architectures.LSTM(units=64),
-        hyperparameters=Hyperparameters(
-            preprocessing=PreprocessingHyperparameters(sequence_length=100, stride=50)
-        )
-    ),
-    ModelCandidate(
-        architecture=Architectures.LSTM(units=64),
-        hyperparameters=Hyperparameters(
-            preprocessing=PreprocessingHyperparameters(sequence_length=400, stride=200)
-        )
-    ),
-    ModelCandidate(
-        architecture=Architectures.LSTM(units=64),
-        hyperparameters=Hyperparameters(
-            preprocessing=PreprocessingHyperparameters(sequence_length=100, stride=10)
-        )
-    ),
+    @staticmethod
+    def string_representation(architecture: list[Layer]) -> str:
+        """Return a string representation of the architecture."""
+        #/ this will fail if a layer in the architecture does not have a 'units' property
+        return ' -> '.join([f"{layer.__class__.__name__.lower()}({layer.units})" for layer in architecture])
+    
+candidates: list['ModelCandidate'] = [
+    ModelCandidate(architecture=Architecture.LSTM(units=32)),
+    # ModelCandidate(architecture=Architecture.LSTM(units=64)),
+    # ModelCandidate(architecture=Architecture.LSTM(units=128)),
+    # ModelCandidate(
+    #     architecture=Architecture.LSTM(units=64),
+    #     hyperparameters=Hyperparameters(
+    #         preprocessing=PreprocessingHyperparameters(sequence_length=100, stride=50)
+    #     )
+    # ),
+    # ModelCandidate(
+    #     architecture=Architecture.LSTM(units=64),
+    #     hyperparameters=Hyperparameters(
+    #         preprocessing=PreprocessingHyperparameters(sequence_length=400, stride=200)
+    #     )
+    # ),
+    # ModelCandidate(
+    #     architecture=Architecture.LSTM(units=64),
+    #     hyperparameters=Hyperparameters(
+    #         preprocessing=PreprocessingHyperparameters(sequence_length=100, stride=10)
+    #     )
+    # ),
 ]

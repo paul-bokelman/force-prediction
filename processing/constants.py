@@ -5,6 +5,7 @@ from globals import constants
 mvc_levels = [5, 10, 20, 40, 60] # the total list of mvc levels to be considered (missing 100)
 data_dir = "processing/data" # directory containing all subject data
 subject_data_dir = f"{data_dir}/subjects" # directory containing all subject data
+subject_mappings_path = f"{data_dir}/subject-mappings.json" # path to the subject mappings file
 dataset_path = f"{data_dir}/dataset.pkl" # dataset path that is manipulated by conversion and sanitization
 
 # ------------------------------- sanitization ------------------------------- #
@@ -20,11 +21,6 @@ min_spike_interval = 33 # minimum amount of time between spikes in milliseconds
 # ------------------------------- preprocessing ------------------------------ #
 preprocessed_dataset_path = lambda identifier: f"{data_dir}/preprocessed/{identifier}.pkl" # path to a specific preprocessed dataset file
 
-sequence_length = 200 # length of the sliding window for preprocessing
-stride = sequence_length // 2 # stride for sliding window
-train_percentage, validation_percentage, test_percentage = 0.8, 0.1, 0.1 # split percentages for training, validation, and test sets
-batch_size = 32 # batch size for training
-
 bin_size = int(constants.sampling_frequency * 0.01) # bin size for binning the neuron data (2048 -> 1 second -> 1000ms*0.01 = 10ms)
-exponential_decay_lifetime = 20 # memory decay rate for neuronal spike data (in milliseconds), 5 -> signal gone in 5ms
+exponential_decay_lifetime = 20 # memory decay rate for neuronal spike data (in milliseconds), 20 -> signal gone in 20ms
 size_amplification_factor = 0.3 # amplification factor for increasing neuron size (based on first activation) ln(x)^fac

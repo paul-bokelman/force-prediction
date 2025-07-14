@@ -6,7 +6,7 @@ import base64
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import r2_score
 from globals.utils import Log
 from prediction import models, tuning
 from analysis import plotting
@@ -24,18 +24,83 @@ def save(hash: str, metrics: dict[str, list[float]]) -> None:
     pd.DataFrame(metrics, index=[0]).to_pickle(get_metrics_path(hash))
     Log.info(f"Saved metrics for '{hash}'")
 
-def generate_report(candidate: tuning.ModelCandidate) -> None:
-    """Generate an HTML report for all aspects of the model then save as PDF"""
+def predict_by_index(candidate: tuning.ModelCandidate, row_index: int) -> None:
+    """Predict the force sequence for a specific row index in the preprocessed dataset."""
     candidate_hash = candidate.hash()
 
+    dataset = get_dataframe(processing.constants.dataset_path)
+    preprocessed_dataset = get_dataframe(processing.constants.preprocessed_dataset_path(candidate.hyperparameters.preprocessing.hash()))
+    model = models.obtain(candidate_hash)
+
+    assert model is not None, f"Model for candidate '{candidate_hash}' does not exist. Cannot predict force."
+
+    row = preprocessed_dataset.iloc[row_index]
+    neuron_data, force_data, subject = row["neuron_data"], row["force_data"], row["subject"]
+    original_neuron_data = dataset.iloc[cast(int, row_index)]["neuron_data"]
+
+    predicted_force = model.predict_force(
+        neuron_data, 
+        subject,
+        candidate.hyperparameters.training.sequence_length, 
+        candidate.hyperparameters.training.stride
+    )
+
+    score = r2_score(force_data, predicted_force)
+
+    plotting.visualize_trial(
+        title=f"Prediction {row_index} (r² = {score:.4f})",
+        neuron_data=original_neuron_data,
+        force_data=force_data, 
+        predicted_force=predicted_force
+    )
+
+def export_all_predictions(candidate: tuning.ModelCandidate) -> None:
+    """Export all predictions for the given candidate to png files within the candidate's output directory."""
+    candidate_hash = candidate.hash()
+
+    dataset = get_dataframe(processing.constants.dataset_path)
+    preprocessed_dataset = get_dataframe(processing.constants.preprocessed_dataset_path(candidate.hyperparameters.preprocessing.hash()))
+    model = models.obtain(candidate_hash)
+
+    assert model is not None, f"Model for candidate '{candidate_hash}' does not exist. Cannot export predictions."
+    predictions_export_dir = os.path.join(prediction.constants.candidate_out_dir(candidate_hash), "predictions/")
+
+    # create the predictions export directory if it does not exist
+    if not os.path.exists(predictions_export_dir):
+        os.makedirs(predictions_export_dir)
+
+    # export all predictions for each row in the preprocessed dataset
+    for row_index, row in preprocessed_dataset.iterrows():
+        neuron_data, force_data, subject = row["neuron_data"], row["force_data"], row["subject"]
+        original_neuron_data = dataset.iloc[cast(int, row_index)]["neuron_data"]
+        predicted_force = model.predict_force(
+            neuron_data, 
+            subject,
+            candidate.hyperparameters.training.sequence_length, 
+            candidate.hyperparameters.training.stride
+        )
+
+        score = r2_score(force_data, predicted_force)
+
+        plotting.visualize_trial(
+            title=f"Prediction {row_index} (r² = {score:.4f})",
+            neuron_data=original_neuron_data,
+            force_data=force_data, 
+            predicted_force=predicted_force, 
+            export_path=os.path.join(predictions_export_dir, f"pred{row_index}.png")
+        )
+
+def generate_report(candidate: tuning.ModelCandidate) -> None:
+    """Generate an HTML report for all aspects of the model"""
+    candidate_hash = candidate.hash()
+    candidate_information_dict = candidate.to_dict() # modified dict conversion to include architecture representation
+
     candidate_information_partial_fields = {
-        "base_information": generate_attribute_list({k: html.escape(str(v)) for k, v in candidate.__dict__.items() if k != 'hyperparameters'}),
-        "preprocessing": generate_attribute_list(candidate.hyperparameters.preprocessing.__dict__),
-        "training": generate_attribute_list(candidate.hyperparameters.training.__dict__),
+        "base_information": generate_attribute_list({k: html.escape(str(v)) for k, v in candidate_information_dict.items() if k != 'hyperparameters'}),
+        "preprocessing": generate_attribute_list(candidate_information_dict["hyperparameters"]["preprocessing"]),
+        "training": generate_attribute_list(candidate_information_dict["hyperparameters"]["training"]),
     }
     candidate_information_partial = replace_placeholders("candidate_information", candidate_information_partial_fields)
-
-    #todo: plots for loss/val_loss and metrics over epochs
     training_history = pd.read_pickle(os.path.join(prediction.constants.candidate_out_dir(candidate_hash), "history.pkl"))
 
     # construct training history plot
@@ -75,37 +140,43 @@ def generate_report(candidate: tuning.ModelCandidate) -> None:
     # include plots of best and worst trial predictions
     model = models.obtain(candidate_hash)
     prediction_indices: dict[str, tuple[int, float, np.ndarray]] = {
-        "best": (0, float('inf'), np.array([])),
-        "worst": (0, float('-inf'), np.array([]))
+        "best": (0, float('-inf'), np.array([])),
+        "average": (0, 0.0, np.array([])),
+        "worst": (0, float('inf'), np.array([]))
     }
 
     assert model is not None, "Model is not present. Cannot generate report without a trained model."
 
     # find the best and worst predictions
     for row_index, row in preprocessed_dataset.iterrows():
-        neuron_data, force_data = row["neuron_data"], row["force_data"]
+        neuron_data, force_data, subject = row["neuron_data"], row["force_data"], row["subject"]
         predicted_force = model.predict_force(
             neuron_data, 
-            candidate.hyperparameters.preprocessing.sequence_length, 
-            candidate.hyperparameters.preprocessing.stride
+            subject,
+            candidate.hyperparameters.training.sequence_length, 
+            candidate.hyperparameters.training.stride
         )
-        mse = mean_squared_error(force_data, predicted_force)
+
+        prediction_score = r2_score(force_data, predicted_force)
         
         # replace the best and worst indices if the current mse is better or worse
-        for key, (_, p_mse, _) in prediction_indices.items():
-            if key == "best" and mse < p_mse:
-                prediction_indices[key] = (cast(int, row_index), mse, predicted_force)
-            elif key == "worst" and mse > p_mse:
-                prediction_indices[key] = (cast(int, row_index), mse, predicted_force)
+        for key, (_, current_score, _) in prediction_indices.items():
+            if key == "best" and prediction_score > current_score:
+                prediction_indices[key] = (cast(int, row_index), prediction_score, predicted_force)
+            elif key == "worst" and prediction_score < current_score:
+                prediction_indices[key] = (cast(int, row_index), prediction_score, predicted_force)
+            elif key == "average" and abs(prediction_score - baseline_metrics["baseline_r2"] < abs(current_score - baseline_metrics["baseline_r2"])):
+                prediction_indices[key] = (cast(int, row_index), prediction_score, predicted_force)
 
     # b64 encode the best and worst predictions
     encoded_predictions = {}
-    for key, (data_index, _, predicted_force) in prediction_indices.items():
+    for key, (data_index, score, predicted_force) in prediction_indices.items():
         prediction_entry = preprocessed_dataset.iloc[data_index]
         neuron_data, force_data = dataset.iloc[data_index]["neuron_data"], prediction_entry["force_data"]
 
         # visualize the trial and encode the plot
         prediction_encoding = plotting.visualize_trial(
+            title=f"{key.capitalize()} Prediction (r² = {score:.4f})",
             neuron_data=neuron_data, 
             force_data=force_data, 
             predicted_force=predicted_force, 
@@ -129,4 +200,3 @@ def generate_report(candidate: tuning.ModelCandidate) -> None:
 
     Log.info(f"Exported HTML report for '{candidate_hash}'")
 
-    

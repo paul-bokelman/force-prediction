@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Generator
 from numpy.typing import NDArray
 from dataclasses import dataclass
 import numpy as np
@@ -19,3 +19,7 @@ class ISIStatistics:
     isi: np.floating
     std: np.floating
     cv: np.floating
+
+# --------------------------------- processor -------------------------------- #
+
+type DataGenerator = Generator[tuple[dict[str, np.ndarray], np.ndarray], None, None] # yields (inputs, targets)
