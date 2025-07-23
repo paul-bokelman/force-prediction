@@ -84,7 +84,7 @@ class ModelCandidate:
     def already_computed(self) -> bool:
         """Check if the model candidate has already been computed."""
         candidate_dir = prediction.constants.candidate_out_dir(self.hash())
-        required_files = ["history.pkl", "weights.keras", "metrics.pkl", "report.html"]
+        required_files = ["history.pkl", "weights.keras", "metrics.pkl"]
         if not os.path.exists(candidate_dir):
             return False
         return all(os.path.exists(os.path.join(candidate_dir, fname)) for fname in required_files)
@@ -159,8 +159,8 @@ class Architecture:
     
 candidates: list['ModelCandidate'] = [
     ModelCandidate(architecture=Architecture.LSTM(units=32)),
-    # ModelCandidate(architecture=Architecture.LSTM(units=64)),
-    # ModelCandidate(architecture=Architecture.LSTM(units=128)),
+    ModelCandidate(architecture=Architecture.LSTM(units=64)),
+    ModelCandidate(architecture=Architecture.LSTM(units=128)),
     ModelCandidate(
         architecture=Architecture.LSTM(units=32),
         hyperparameters=Hyperparameters(
@@ -185,16 +185,16 @@ candidates: list['ModelCandidate'] = [
             training=TrainingHyperparameters(sequence_length=100, stride=50, subject_embedding_dimension=16)
         )
     ),
-    # ModelCandidate(
-    #     architecture=Architecture.LSTM(units=64),
-    #     hyperparameters=Hyperparameters(
-    #         training=TrainingHyperparameters(sequence_length=400, stride=200)
-    #     )
-    # ),
-    # ModelCandidate(
-    #     architecture=Architecture.LSTM(units=64),
-    #     hyperparameters=Hyperparameters(
-    #         training=TrainingHyperparameters(sequence_length=100, stride=10)
-    #     )
-    # ),
+    ModelCandidate(
+        architecture=Architecture.LSTM(units=64),
+        hyperparameters=Hyperparameters(
+            training=TrainingHyperparameters(sequence_length=400, stride=200)
+        )
+    ),
+    ModelCandidate(
+        architecture=Architecture.LSTM(units=64),
+        hyperparameters=Hyperparameters(
+            training=TrainingHyperparameters(sequence_length=100, stride=10)
+        )
+    ),
 ]

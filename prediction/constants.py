@@ -7,9 +7,9 @@ candidate_out_dir = lambda hash: f"{output_dir}/{hash}"
 
 # ---------------------------------- models ---------------------------------- #
 
-epochs = 50 # number of training epochs
+epochs = 1 # number of training epochs
 batch_size = 32 # batch size for training
-early_stopping_patience = 5 # patience for early stopping callback during training
+early_stopping_patience = 3 # patience for early stopping callback during training
 
 subject_embedding_dimension = 8 # dimension of the subject embedding layer
 sequence_length = 200 # length of the sliding window for preprocessing
@@ -21,7 +21,7 @@ tensorboard_log_dir = 'prediction/logs' # directory for saving TensorBoard logs
 # --------------------------------- genetics --------------------------------- #
 
 population_size = 10 # number of candidates in each generation
-generations = 3 # number of generations to evolve the population
+generations = 2 # number of generations to evolve the population
 base_mutation_probability = 0.4 # base mutation probability for each candidate -> combined with desperation factor
 gene_mutation_probability = 0.1 # probability of mutation for each gene in a genome
 

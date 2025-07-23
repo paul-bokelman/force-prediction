@@ -4,7 +4,7 @@ from prediction.tuning import Hyperparameters
 import os
 import numpy as np
 import pandas as pd
-from scipy.signal import butter, filtfilt, resample
+from scipy.signal import resample
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from numpy.lib.stride_tricks import sliding_window_view
 from globals.utils import Log
@@ -105,6 +105,7 @@ class Preprocessor:
             shuffled_neural_inputs = np.array(x_batch["neural_input"])[indices]
             shuffled_subject_ids = np.array(x_batch["subject_id"])[indices]
             shuffled_force_data = np.array(y_batch)[indices]
+
             return {"neural_input": shuffled_neural_inputs, "subject_id": shuffled_subject_ids}, shuffled_force_data
 
         while True:
@@ -131,12 +132,12 @@ class Preprocessor:
                     y_batch.append(y_window)
 
                     # yield batch when size is reached
-                    if len(x_batch) == self.batch_size:
+                    if len(y_batch) == self.batch_size:
                         yield shuffled_batches(x_batch, y_batch) # yield a shuffled version of the batch
                         x_batch, y_batch = reset_batch()  # reset the batch after yielding
 
             # handle remaining data in the batch
-            if x_batch:
+            if y_batch:
                 yield shuffled_batches(x_batch, y_batch)
                 x_batch, y_batch = reset_batch()  # reset the batch after yielding
 

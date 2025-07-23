@@ -1,3 +1,7 @@
+# python -m prediction.scripts.train-candidates
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # suppress all tf except fatal errors
+
 from prediction import models, tuning
 from processing import processors
 from analysis import metrics
