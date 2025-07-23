@@ -161,22 +161,40 @@ candidates: list['ModelCandidate'] = [
     ModelCandidate(architecture=Architecture.LSTM(units=32)),
     # ModelCandidate(architecture=Architecture.LSTM(units=64)),
     # ModelCandidate(architecture=Architecture.LSTM(units=128)),
+    ModelCandidate(
+        architecture=Architecture.LSTM(units=32),
+        hyperparameters=Hyperparameters(
+            training=TrainingHyperparameters(sequence_length=100, stride=50)
+        )
+    ),
+    ModelCandidate(
+        architecture=Architecture.LSTM(units=32),
+        hyperparameters=Hyperparameters(
+            training=TrainingHyperparameters(subject_embedding_dimension=16)
+        )
+    ),
+    ModelCandidate(
+        architecture=Architecture.LSTM(units=32),
+        hyperparameters=Hyperparameters(
+            training=TrainingHyperparameters(subject_embedding_dimension=32)
+        )
+    ),
+    ModelCandidate(
+        architecture=Architecture.LSTM(units=16),
+        hyperparameters=Hyperparameters(
+            training=TrainingHyperparameters(sequence_length=100, stride=50, subject_embedding_dimension=16)
+        )
+    ),
     # ModelCandidate(
     #     architecture=Architecture.LSTM(units=64),
     #     hyperparameters=Hyperparameters(
-    #         preprocessing=PreprocessingHyperparameters(sequence_length=100, stride=50)
+    #         training=TrainingHyperparameters(sequence_length=400, stride=200)
     #     )
     # ),
     # ModelCandidate(
     #     architecture=Architecture.LSTM(units=64),
     #     hyperparameters=Hyperparameters(
-    #         preprocessing=PreprocessingHyperparameters(sequence_length=400, stride=200)
-    #     )
-    # ),
-    # ModelCandidate(
-    #     architecture=Architecture.LSTM(units=64),
-    #     hyperparameters=Hyperparameters(
-    #         preprocessing=PreprocessingHyperparameters(sequence_length=100, stride=10)
+    #         training=TrainingHyperparameters(sequence_length=100, stride=10)
     #     )
     # ),
 ]

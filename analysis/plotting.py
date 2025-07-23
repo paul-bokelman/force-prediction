@@ -27,7 +27,8 @@ def visualize_trial(
         export_path: Optional[str] = None, 
         ax: Optional[Axes] = None,
         show_legend: bool = False,
-        encode: Optional[bool] = False
+        encode: Optional[bool] = False,
+        dark_mode: bool = False
 ):
     """Plot grid of raster plots with force overlays for a given trial. Optionally save the plot to a file and or apply markers. Visualization also removes neuron rows with no data."""
 
@@ -43,6 +44,11 @@ def visualize_trial(
     trial = df[(df["subject"] == subject) & (df["trial_number"] == trial_number) & (df["mvc_level"] == mvc_level)].iloc[0] if df is not None else None
 
     # setting up the plot
+    if dark_mode:
+        plt.style.use('dark_background')
+    else:
+        plt.style.use('default')
+    
     if ax is None:
         fig, ax = plt.subplots(figsize=(18, 6))
     else:
@@ -52,6 +58,10 @@ def visualize_trial(
             for extra_ax in fig.axes[1:]:
                 fig.delaxes(extra_ax)
             ax.clear()
+
+    if dark_mode:
+        fig.patch.set_facecolor('#161616')
+        ax.set_facecolor('#161616')
 
     ax.set_ylabel("Motor Neuron")
     ax.set_xlabel("Time (s)")
@@ -76,24 +86,25 @@ def visualize_trial(
 
     def plot_force_only(force_data: np.ndarray, time_values: np.ndarray) -> None:
         """Plots force data only"""
-        ax.plot(time_values, force_data, label="Force Profile", color='red')
-        ax.set_ylabel("Force", color='red')
+        ax.plot(time_values, force_data, label="Force Profile", color=("#E5E5E5" if dark_mode else "red"))
 
     def plot_raster(neuron_data: np.ndarray, time_values: np.ndarray) -> None:
         """Plots raster representation of neuron data"""
         if neuron_data.ndim == 1:
-            ax.plot(time_values, neuron_data, '|')
-            
+            raise ValueError("Neuron data must be a 2D array with shape (num_neurons, num_time_points).")
+
         # Sort and plot neurons based on first spike time
         neuron_order = np.argsort(np.argmax(neuron_data, axis=1))
         sorted_data = neuron_data[neuron_order]
         for i, neuron in enumerate(sorted_data):
-            ax.plot(time_values, neuron * (i + 1), '|')
+            if i == len(sorted_data) - 1:
+                ax.plot(time_values, neuron * (i + 1), '|', alpha=1.0, color=("#161616" if dark_mode else "white"), linewidth=2)
+            else:
+                ax.plot(time_values, neuron * (i), '|', alpha=(0.5 if dark_mode else 1.0))
 
-    def plot_force_overlay(force_data: np.ndarray, time_values: np.ndarray, force_axis: Axes, color: str):
+    def plot_force_overlay(force_data: np.ndarray, time_values: np.ndarray, force_axis: Axes):
         """Plots force overlay on additional axis"""
-        force_axis.set_ylabel("Force", color='red')
-        force_axis.plot(time_values, force_data, label="Force Profile", color=color)
+        force_axis.plot(time_values, force_data, label="Force Profile", color= ("#BABABA" if dark_mode else "red"))
         
         # optionally show legend for force overlay
         if show_legend:
@@ -117,13 +128,13 @@ def visualize_trial(
     if force_data.size > 0:
         force_axis = cast(Axes, ax.twinx())
         force_time = np.linspace(0, total_time, len(force_data))
-        plot_force_overlay(force_data, force_time, force_axis, 'red')
+        plot_force_overlay(force_data, force_time, force_axis)
         
         # add predicted force overlay if present
         if predicted_force is not None and predicted_force.size > 0:
             # Use same time scale as actual force
             pred_force_time = np.linspace(0, total_time, len(predicted_force))
-            force_axis.plot(pred_force_time, predicted_force, label="Predicted Force", color='blue')
+            force_axis.plot(pred_force_time, predicted_force, label="Predicted Force", color=("#FF6900" if dark_mode else 'blue'))
             # Update legend to include both force profiles
             lines, labels = force_axis.get_legend_handles_labels()
             force_axis.legend(lines, labels, loc='upper right')
@@ -142,16 +153,23 @@ def visualize_subject(df: pd.DataFrame, subject: str):
         visualize_trial(df, subject, trial['mvc_level'], trial['trial_number'])
         plt.show()
 
-def visualize_spike_trains(spike_trains: np.ndarray, section: Optional[tuple[int, int]] = None, bw: bool = False, line_height: float = 0.5):
+def visualize_spike_trains(spike_trains: np.ndarray, section: Optional[tuple[int, int]] = None, bw: bool = False, line_height: float = 0.5, dark_mode: bool = False):
     """Visualize spike trains as an image, scaling x axis by 2048."""
+    if dark_mode:
+        plt.style.use('dark_background')
+    else:
+        plt.style.use('default')
+    
     fig, ax = plt.subplots(figsize=(20, 6))
+    
+    if dark_mode:
+        fig.patch.set_facecolor('#161616')
+        ax.set_facecolor('#161616')
 
     # section provided -> zoom into range
     if section is not None:
         start, end = section
         spike_trains = spike_trains[:, start:end]
-
-    # spike_trains = np.clip(spike_trains, 0, None) #/ clip negative values to zero
 
     # sort neurons by first activation (lowest index = earliest activation)
     first_activations = np.argmax(spike_trains > 0, axis=1)
@@ -159,11 +177,6 @@ def visualize_spike_trains(spike_trains: np.ndarray, section: Optional[tuple[int
     first_activations[np.all(spike_trains == 0, axis=1)] = spike_trains.shape[1] + 1
     neuron_order = np.argsort(first_activations)
     spike_trains = spike_trains[neuron_order]
-
-    #/ normalize spike trains to [0, 1] range for coloring
-    # max_val = np.max(spike_trains)
-    # min_val = np.min(spike_trains)
-    # norm_spikes = (spike_trains - min_val) / (max_val - min_val) if max_val > min_val else spike_trains
 
     for i in range(spike_trains.shape[0]):
         times = np.where(spike_trains[i] >= 0)[0]
@@ -180,27 +193,105 @@ def visualize_spike_trains(spike_trains: np.ndarray, section: Optional[tuple[int
     
     plt.show()
 
-def visualize_model_performance(
-        history: dict[str, list[float]], 
-        export_path: Optional[str] = None, 
-):
-    """Visualize training and validation loss/accuracy over epochs."""
-    _, ax = plt.subplots(figsize=(10, 6))
-    epochs = range(1, len(history['loss']) + 1)
-
-    # plot loss
-    ax.plot(epochs, history['loss'], label='Training Loss', color='blue')
-    ax.plot(epochs, history['val_loss'], label='Validation Loss', color='orange')
-
-    # plot accuracy if available
-    if 'accuracy' in history:
-        ax.plot(epochs, history['accuracy'], label='Training Accuracy', color='green')
-        ax.plot(epochs, history['val_accuracy'], label='Validation Accuracy', color='red')
-
-    ax.set_xlabel('Epochs')
-    ax.set_ylabel('Loss / Accuracy')
-    ax.set_title('Model Performance Over Epochs')
+def visualize_training(training_history: dict[str, list[float]], export_path: Optional[str] = None, encode: Optional[bool] = False, dark_mode: bool = False):
+    """Visualize training and validation loss/accuracy over epochs. Optionally encode plot as base64."""
+    if dark_mode:
+        plt.style.use('dark_background')
+    else:
+        plt.style.use('default')
+    
+    _, ax = plt.subplots(figsize=(14, 5))
+    
+    if dark_mode:
+        plt.gcf().patch.set_facecolor('#161616')
+        ax.set_facecolor('#161616')
+    
+    ax.plot(training_history["loss"], label="Training Loss")
+    ax.plot(training_history["val_loss"], label="Validation Loss")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
     ax.legend()
+    ax.set_title("Loss and Validation Loss over Epochs")
 
     if export_path:
         plt.savefig(export_path)
+    if encode:
+        return b64_encode_plot()
+    else:
+        plt.show()
+
+def visualize_number_of_neurons_impact(
+    dataset: pd.DataFrame,
+    predictions: list[tuple[int, float]], 
+    export_path: Optional[str] = None, 
+    encode: Optional[bool] = False, 
+    dark_mode: bool = False):
+    """Visualize the impact of varying number of neurons on model performance as a histogram."""
+
+    # Extract neuron counts and scores from predictions
+    neuron_counts = np.array([
+        dataset.iloc[index]["neuron_data"].shape[0] if isinstance(dataset.iloc[index]["neuron_data"], np.ndarray) else 0
+        for index, _ in predictions
+    ])
+    scores = np.array([score for _, score in predictions])
+
+    min_neurons, max_neurons = neuron_counts.min(), neuron_counts.max()
+
+    neuron_nums = np.arange(min_neurons + 1, max_neurons + 1)
+    mean_scores = np.array([
+        scores[neuron_counts == n].mean() if np.any(neuron_counts == n) else 0
+        for n in neuron_nums
+    ])
+
+    if dark_mode:
+        plt.style.use('dark_background')
+    else:
+        plt.style.use('default')
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+    if dark_mode:
+        fig.patch.set_facecolor('#161616')
+        ax.set_facecolor('#161616')
+    ax.set_title("Impact of Number of Neurons on Model Performance")
+    ax.set_xlabel("Number of Neurons")
+    ax.set_ylabel("Average Performance Metric (e.g., R² Score)")
+    ax.bar(neuron_nums, mean_scores, color='skyblue')
+    if export_path:
+        plt.savefig(export_path)
+    if encode:
+        return b64_encode_plot()
+    else:
+        plt.show()
+
+def visualize_data_volume_impact(
+    dataset: pd.DataFrame,
+    predictions: list[tuple[int, float]], 
+    export_path: Optional[str] = None, 
+    encode: Optional[bool] = False, 
+    dark_mode: bool = False):
+    """Visualize the impact of varying data volume on model performance as a histogram."""
+
+    if dark_mode:
+        plt.style.use('dark_background')
+    else:
+        plt.style.use('default')
+
+    data_densities, performance_metrics = zip(*[
+        (np.count_nonzero(dataset.iloc[i]['neuron_data'] == 1) / len(dataset.iloc[i]['neuron_data'].reshape(-1)), score)
+        for i, score in predictions
+    ]) if predictions else ([], [])
+    
+    _, ax = plt.subplots(figsize=(14, 5))
+    if dark_mode:
+        plt.gcf().patch.set_facecolor('#161616')
+    ax.set_facecolor('#161616')
+    ax.set_title("Impact of Neuronal Activation Density on Model Performance")
+    ax.set_xlabel("Activation Density (Fraction of Active Neurons)")
+    ax.set_ylabel("Performance Metric (e.g., R² Score)")
+    ax.hist(data_densities, weights=performance_metrics, bins=len(set(data_densities)), color='salmon', edgecolor='black')
+    if export_path:
+        plt.savefig(export_path)
+    if encode:
+        return b64_encode_plot()
+    else:
+        plt.show()

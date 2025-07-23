@@ -1,19 +1,17 @@
 from typing import cast
+from analysis.types import CandidateReport, CandidateInfo, ComparisonMetrics, MetricsGroup, Plots, MetricsPlot, PredictionsPlot
 import os
-import io
-import html
-import base64
+import json
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
 from globals.utils import Log
 from prediction import models, tuning
 from analysis import plotting
 import prediction.constants
 import processing.constants
+import analysis.constants
 from processing.utils import get_dataframe
-from analysis.partials.utils import replace_placeholders, generate_attribute_list
 
 def get_metrics_path(hash: str) -> str:
     """Get the path to the saved metrics file."""
@@ -51,7 +49,7 @@ def predict_by_index(candidate: tuning.ModelCandidate, row_index: int) -> None:
         title=f"Prediction {row_index} (r² = {score:.4f})",
         neuron_data=original_neuron_data,
         force_data=force_data, 
-        predicted_force=predicted_force
+        predicted_force=predicted_force,
     )
 
 def export_all_predictions(candidate: tuning.ModelCandidate) -> None:
@@ -91,39 +89,31 @@ def export_all_predictions(candidate: tuning.ModelCandidate) -> None:
         )
 
 def generate_report(candidate: tuning.ModelCandidate) -> None:
-    """Generate an HTML report for all aspects of the model"""
+    """Generate a json report for the given candidate, including metrics and plots. Report is visualized in the web interface."""
     candidate_hash = candidate.hash()
+    model = models.obtain(candidate_hash)
+    assert model is not None, "Model is not present. Cannot generate report without a trained model."
+    
     candidate_information_dict = candidate.to_dict() # modified dict conversion to include architecture representation
 
-    candidate_information_partial_fields = {
-        "base_information": generate_attribute_list({k: html.escape(str(v)) for k, v in candidate_information_dict.items() if k != 'hyperparameters'}),
-        "preprocessing": generate_attribute_list(candidate_information_dict["hyperparameters"]["preprocessing"]),
-        "training": generate_attribute_list(candidate_information_dict["hyperparameters"]["training"]),
-    }
-    candidate_information_partial = replace_placeholders("candidate_information", candidate_information_partial_fields)
-    training_history = pd.read_pickle(os.path.join(prediction.constants.candidate_out_dir(candidate_hash), "history.pkl"))
+    candidate_information = CandidateInfo(
+        hash=candidate_hash,
+        identifier=candidate_information_dict["identifier"],
+        architecture=candidate_information_dict["architecture"],
+        version=candidate_information_dict["version"],
+        hyperparameters={
+            "preprocessing": candidate_information_dict["hyperparameters"]["preprocessing"],
+            "training": candidate_information_dict["hyperparameters"]["training"]
+        }
+    )
 
-    # construct training history plot
-    plt.figure(figsize=(14, 5))
-    plt.plot(training_history["loss"], label="Training Loss")
-    plt.plot(training_history["val_loss"], label="Validation Loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.legend()
-    plt.title("Loss and Validation Loss over Epochs")
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png")
-    plt.close()
-    buf.seek(0)
-    training_history_plot = base64.b64encode(buf.read()).decode("utf-8")
+    comparison_metrics: ComparisonMetrics = {}
 
     # get the metrics and baseline metrics
     dataset = get_dataframe(processing.constants.dataset_path)
     metrics = get_dataframe(get_metrics_path(candidate_hash))
     preprocessed_dataset = get_dataframe(processing.constants.preprocessed_dataset_path(candidate.hyperparameters.preprocessing.hash()))
     baseline_metrics = preprocessed_dataset.attrs
-
-    evaluation_metrics = {} # mae, mse, r2
 
     # compile evaluation metrics
     for fullname, key in [("mean absolute error", "mae"), ("mean squared error", "mse"), ("r²", "r2")]:
@@ -132,22 +122,47 @@ def generate_report(candidate: tuning.ModelCandidate) -> None:
         baseline_value = baseline_metrics.get(baseline_key, None)
         assert baseline_value is not None and model_value is not None, f"Missing metric {key} for model {candidate.hash()} or baseline."
         improvement = True if (key == "r2" and model_value > baseline_value) or (key != "r2" and model_value < baseline_value) else False
-        evaluation_metrics[fullname] = {
-            "quantity": f"{round(baseline_value, 4)} → {round(model_value, 4)}", 
-            "improvement": improvement
-        }
+        
+        comparison_metrics[fullname] = MetricsGroup(
+            baseline=round(baseline_value, 4),
+            candidate=round(model_value, 4),
+            improvement=improvement
+        )
 
-    # include plots of best and worst trial predictions
-    model = models.obtain(candidate_hash)
-    prediction_indices: dict[str, tuple[int, float, np.ndarray]] = {
-        "best": (0, float('-inf'), np.array([])),
-        "average": (0, 0.0, np.array([])),
-        "worst": (0, float('inf'), np.array([]))
-    }
+    plots = Plots(
+        training_history="",
+        metrics=MetricsPlot(
+            data_volume="",
+            number_of_neurons="",
+        ),
+        predictions=PredictionsPlot(
+            best="",
+            average="",
+            worst=""
+        )
+    )
 
-    assert model is not None, "Model is not present. Cannot generate report without a trained model."
+    # construct training history plot
+    training_history = pd.read_pickle(os.path.join(prediction.constants.candidate_out_dir(candidate_hash), "history.pkl"))
+    plots['training_history'] = cast(str, plotting.visualize_training(training_history, encode=True, dark_mode=True))
 
-    # find the best and worst predictions
+    def encode_candidate_prediction(key: str, data_index: int, score: float, predicted_force: np.ndarray) -> str:
+        """Encode a candidate prediction plot for the report."""
+        prediction_entry = preprocessed_dataset.iloc[data_index]
+        neuron_data, force_data = dataset.iloc[data_index]["neuron_data"], prediction_entry["force_data"]
+
+        # visualize the trial and encode the plot
+        return cast(str, plotting.visualize_trial(
+            title=f"{key.capitalize()} Prediction (r² = {score:.4f})",
+            neuron_data=neuron_data, 
+            force_data=force_data, 
+            predicted_force=predicted_force, 
+            encode=True,
+            dark_mode=True,
+        ))
+
+    # compute predictions for all data
+    all_predictions: list[dict] = []
     for row_index, row in preprocessed_dataset.iterrows():
         neuron_data, force_data, subject = row["neuron_data"], row["force_data"], row["subject"]
         predicted_force = model.predict_force(
@@ -156,47 +171,62 @@ def generate_report(candidate: tuning.ModelCandidate) -> None:
             candidate.hyperparameters.training.sequence_length, 
             candidate.hyperparameters.training.stride
         )
+        all_predictions.append({
+            "row_index": cast(int, row_index),
+            "score": r2_score(force_data, predicted_force),
+            "predicted_force": predicted_force
+        })
 
-        prediction_score = r2_score(force_data, predicted_force)
-        
-        # replace the best and worst indices if the current mse is better or worse
-        for key, (_, current_score, _) in prediction_indices.items():
-            if key == "best" and prediction_score > current_score:
-                prediction_indices[key] = (cast(int, row_index), prediction_score, predicted_force)
-            elif key == "worst" and prediction_score < current_score:
-                prediction_indices[key] = (cast(int, row_index), prediction_score, predicted_force)
-            elif key == "average" and abs(prediction_score - baseline_metrics["baseline_r2"] < abs(current_score - baseline_metrics["baseline_r2"])):
-                prediction_indices[key] = (cast(int, row_index), prediction_score, predicted_force)
+    # find best, worst, and average predictions
+    scores = np.array([result["score"] for result in all_predictions])
 
-    # b64 encode the best and worst predictions
-    encoded_predictions = {}
-    for key, (data_index, score, predicted_force) in prediction_indices.items():
-        prediction_entry = preprocessed_dataset.iloc[data_index]
-        neuron_data, force_data = dataset.iloc[data_index]["neuron_data"], prediction_entry["force_data"]
+    # Remove outliers from scores using IQR method
+    Q1 = np.quantile(scores, 0.25)
+    Q3 = np.quantile(scores, 0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    filtered_indices = np.where((scores >= lower_bound) & (scores <= upper_bound))[0]
 
-        # visualize the trial and encode the plot
-        prediction_encoding = plotting.visualize_trial(
-            title=f"{key.capitalize()} Prediction (r² = {score:.4f})",
-            neuron_data=neuron_data, 
-            force_data=force_data, 
-            predicted_force=predicted_force, 
-            encode=True
-        )
+    # Print outliers
+    outlier_indices = np.where((scores < lower_bound) | (scores > upper_bound))[0]
+    if len(outlier_indices) > 0:
+        print("Outlier indices:", outlier_indices)
+        print("Outlier scores:", scores[outlier_indices])
 
-        assert isinstance(prediction_encoding, str), f"Failed to encode {key} prediction plot."
-        encoded_predictions[key] = prediction_encoding
-    
-    root = replace_placeholders("root", {
-        "candidate_identifier": candidate_hash, 
-        "candidate_information": candidate_information_partial, 
-        "evaluation_metrics": generate_attribute_list({ k: v["quantity"] for k, v in evaluation_metrics.items() }, flags={key: value["improvement"] for key, value in evaluation_metrics.items()}),
-        "training_history": replace_placeholders("plot", {"img": training_history_plot}),
-        "predictions": "".join([replace_placeholders("plot", {"img": data}) for data in encoded_predictions.values()])
-    })
+    # Remove outliers from all_predictions
+    all_predictions = [all_predictions[i] for i in filtered_indices]
+    scores = scores[filtered_indices]
 
-    # export the HTML report to the candidate's output directory
-    with open(os.path.join(prediction.constants.candidate_out_dir(candidate_hash), f"report.html"), "w") as f:
-        f.write(root)
+    baseline_r2 = baseline_metrics["baseline_r2"]
+    best_idx, worst_idx, avg_idx = int(np.argmax(scores)), int(np.argmin(scores)), int(np.argmin(np.abs(scores - baseline_r2)))
 
-    Log.info(f"Exported HTML report for '{candidate_hash}'")
+    plots["predictions"] = PredictionsPlot( # encode the best, worst, and average predictions
+        best=encode_candidate_prediction("best", best_idx, all_predictions[best_idx]["score"], all_predictions[best_idx]["predicted_force"]),
+        average=encode_candidate_prediction("average", avg_idx, all_predictions[avg_idx]["score"], all_predictions[avg_idx]["predicted_force"]),
+        worst=encode_candidate_prediction("worst", worst_idx, all_predictions[worst_idx]["score"], all_predictions[worst_idx]["predicted_force"])
+    )
 
+    predictions_for_metrics: list[tuple[int, float]] = [(result["row_index"], result["score"]) for result in all_predictions] # reduce data for metrics plots
+
+    plots["metrics"] = MetricsPlot(
+        data_volume=cast(str, plotting.visualize_data_volume_impact(dataset, predictions_for_metrics, encode=True, dark_mode=True)),
+        number_of_neurons=cast(str, plotting.visualize_number_of_neurons_impact(dataset, predictions_for_metrics, encode=True, dark_mode=True)),
+    )
+
+    candidate_report = CandidateReport(
+        candidate=candidate_information,
+        metrics=comparison_metrics,
+        plots=plots,
+    )
+
+    # export the report to a JSON file in the views directory
+    with open(os.path.join(analysis.constants.views_candidates_dir, f"{candidate_hash}.json"), "w") as f:
+        json.dump(candidate_report, f)
+
+    # update the views registry to reflect the new report
+    reports = [r for r in os.listdir(analysis.constants.views_candidates_dir) if r.endswith(".json")]
+    with open(analysis.constants.views_registry_path, "w") as f:
+        json.dump(reports, f)
+
+    Log.success(f"Generated and exported report for candidate '{candidate_hash}'")

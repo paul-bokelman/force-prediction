@@ -1,6 +1,5 @@
 from typing import cast, Literal
 import processing.constants
-import prediction.constants
 import json
 import hashlib
 import dataclasses
@@ -43,6 +42,7 @@ class GeneStateSpace:
 @dataclasses.dataclass
 class Genes:
     """All editable genes in genome, exactly the same as state space in keys."""
+    import prediction.constants
     # ---------------------------------- general --------------------------------- #
     architecture_identifier: ArchitectureIdentifier = "LSTM"
     units: int = 64
