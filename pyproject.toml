@@ -18,3 +18,7 @@ dependencies = [
     "tensorflow>=2.19.0",
     "termcolor>=3.1.0",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["globals*", "analysis*", "processing*", "prediction*", "optimization*"]
