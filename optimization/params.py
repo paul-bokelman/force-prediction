@@ -1,5 +1,5 @@
-from typing import Any, Optional
-from prediction.types import LossFunction
+from typing import cast, Any, Optional
+from optimization.types import LossFunction, ArchitectureIdentifier
 from dataclasses import dataclass, field
 import os
 import hashlib
@@ -7,14 +7,14 @@ import json
 from keras._tf_keras.keras.layers import Layer, LSTM, Dense, Input, GRU, Bidirectional, TimeDistributed, Embedding, RepeatVector, Concatenate
 import prediction.constants
 import processing.constants
-import globals.constants
 
 losses: list[LossFunction] = ["mse", "mae", "huber"]
+architectures: list[ArchitectureIdentifier] = ["LSTM", "DualLSTM"]
 
 @dataclass
 class PreprocessingHyperparameters:
     bin_size: int = processing.constants.bin_size
-    exponential_decay_lifetime: float = processing.constants.exponential_decay_lifetime
+    exponential_decay_lifetime: int = processing.constants.exponential_decay_lifetime
     size_amplification_factor: float = processing.constants.size_amplification_factor
     
     def hash(self) -> str:
@@ -33,7 +33,6 @@ class TrainingHyperparameters:
     validation_percentage: float = prediction.constants.validation_percentage
     subject_embedding_dimension: int | None = prediction.constants.subject_embedding_dimension
     batch_size: int = prediction.constants.batch_size
-    use_tensorboard: bool = True
     train_on_val: bool = False
     loss: LossFunction = 'mse'
 
@@ -48,8 +47,15 @@ class Hyperparameters:
     training: 'TrainingHyperparameters' = field(default_factory=TrainingHyperparameters)
 
 @dataclass
+class PartialArchitecture:
+    """A partial architecture that can be used to construct a full model."""
+    identifier: ArchitectureIdentifier
+    units: int
+    layers: list[Layer]
+
+@dataclass
 class ModelCandidate:
-    architecture: list[Layer]
+    architecture: PartialArchitecture
     identifier: str = "null"
     hyperparameters: Hyperparameters = field(default_factory=Hyperparameters)
     version: int = 1 # used to change hash for same model representation
@@ -93,39 +99,27 @@ class ModelCandidate:
 
 class Architecture:
     """Reuseable model architectures for different candidates."""
-
     @staticmethod
-    def LSTM(units: int) -> list[Layer]:
-        return [LSTM(units, return_sequences=True)]
+    def LSTM(units: int) -> PartialArchitecture:
+        return PartialArchitecture("LSTM", units, [LSTM(units, return_sequences=True)])
     
     @staticmethod 
-    def DualLSTM(units: int) -> list[Layer]:
-        return [LSTM(units, return_sequences=True), LSTM(units, return_sequences=True)]
+    def DualLSTM(units: int) -> PartialArchitecture:
+        return PartialArchitecture("DualLSTM", units, [LSTM(units, return_sequences=True), LSTM(units, return_sequences=True)])
     
     @staticmethod
-    def GRU(units: int) -> list[Layer]:
-        return [GRU(units, return_sequences=True)]
-    
-    @staticmethod
-    def BidirectionalLSTM(units: int) -> list[Layer]:
-        return [Bidirectional(LSTM(units, return_sequences=True))]
-    
-    @staticmethod
-    def BidirectionalGRU(units: int) -> list[Layer]:
-        return [Bidirectional(GRU(units, return_sequences=True))]
-    
-    @staticmethod
-    def GRU_LSTM(units: int) -> list[Layer]:
-        return [GRU(units, return_sequences=True), LSTM(units, return_sequences=True)]
-    
-    @staticmethod
-    def from_config(identifier: str, units: int) -> list[Layer]:
+    def from_config(identifier: str, units: int) -> PartialArchitecture:
         """Configures a partial architecture based on the identifier and units."""
         assert identifier in Architecture.__dict__, f"Unknown architecture identifier: {identifier}"
-        return Architecture.__dict__[identifier](units)
+        return cast(PartialArchitecture, Architecture.__dict__[identifier](units))
     
     @staticmethod
-    def construct(neural_input_shape: tuple[int,...], n_subjects: int, architecture: list[Layer], subject_embedding_dimension: Optional[int]) -> tuple:
+    def construct(
+        neural_input_shape: tuple[int,...], 
+        n_subjects: int, 
+        architecture: PartialArchitecture, 
+        subject_embedding_dimension: Optional[int]
+    ) -> tuple:
         """Constructs the full model architecture. If subject_embedding_dimension is provided, it adds an embedding layer for subjects."""
         use_subject_embedding = subject_embedding_dimension is not None and n_subjects > 1
         sequence_length, features = neural_input_shape
@@ -147,7 +141,7 @@ class Architecture:
             inputs = [neural_input]
 
         # apply the architecture layers
-        for layer in architecture:
+        for layer in architecture.layers:
             assert isinstance(layer, Layer), f"Invalid layer type: {type(layer)}. Expected a Keras Layer."
             x = layer(x)
 
@@ -155,71 +149,12 @@ class Architecture:
         return inputs, output #/ subject input does nothing when not using subject embeddings
     
     @staticmethod
-    def hash(architecture: list[Layer]) -> str:
+    def hash(architecture: PartialArchitecture) -> str:
         """Return a hash representation of the architecture."""
         return hashlib.sha256(Architecture.string_representation(architecture).encode()).hexdigest()[:8]
     
     @staticmethod
-    def string_representation(architecture: list[Layer]) -> str:
+    def string_representation(architecture: PartialArchitecture) -> str:
         """Return a string representation of the architecture."""
         #/ this will fail if a layer in the architecture does not have a 'units' property
-        return ' -> '.join([f"{layer.__class__.__name__.lower()}({layer.units})" for layer in architecture])
-    
-candidates: list['ModelCandidate'] = [
-    ModelCandidate(
-        architecture=Architecture.LSTM(units=16),
-        hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(subject_embedding_dimension=6, train_on_val=True),
-            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
-        )
-    ),
-    ModelCandidate(
-        architecture=Architecture.LSTM(units=32),
-        hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(subject_embedding_dimension=2, train_on_val=True),
-            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
-        )
-    ),
-    ModelCandidate(
-        architecture=Architecture.LSTM(units=8),
-        hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(subject_embedding_dimension=8, train_on_val=True),
-            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
-        )
-    ),
-    ModelCandidate(
-        architecture=Architecture.LSTM(units=32),
-        hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(subject_embedding_dimension=4, train_on_val=False),
-            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
-        )
-    ),
-    ModelCandidate(
-        architecture=Architecture.LSTM(units=40),
-        hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(subject_embedding_dimension=2, train_on_val=False),
-            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
-        )
-    ),
-    ModelCandidate(
-        architecture=Architecture.LSTM(units=64),
-        hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(subject_embedding_dimension=2, train_on_val=False),
-            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
-        )
-    ),
-    ModelCandidate(
-        architecture=Architecture.LSTM(units=42),
-        hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(subject_embedding_dimension=4, train_on_val=False),
-            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
-        )
-    ),
-    ModelCandidate(
-        architecture=Architecture.LSTM(units=32),
-        hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(subject_embedding_dimension=6, train_on_val=False),
-            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
-        )
-    ),
-]
+        return ' -> '.join([f"{layer.__class__.__name__.lower()}({layer.units})" for layer in architecture.layers])

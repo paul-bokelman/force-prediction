@@ -4,11 +4,11 @@ import numpy as np
 import pandas as pd
 from scipy.signal import savgol_filter
 from keras._tf_keras.keras.models import Model, load_model
-from keras._tf_keras.keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
+from keras._tf_keras.keras.callbacks import EarlyStopping, ModelCheckpoint
 from keras._tf_keras.keras.saving import register_keras_serializable
 from keras._tf_keras.keras.metrics import MeanSquaredError, MeanAbsoluteError, R2Score
 from processing.processors import Preprocessor, Postprocessor
-from prediction.tuning import ModelCandidate, Architecture
+from optimization.params import ModelCandidate, Architecture
 from globals.utils import Log
 from prediction import constants
 from processing.utils import get_subject_mappings
@@ -42,12 +42,12 @@ def train(
         candidate: ModelCandidate, 
         save: bool = True, 
         train_on_val: bool = False,
-        verbose: str = "auto"
+        verbose: str | int = "auto"
     ) -> tuple[ModifiedModel, dict[str, list[float]]]:
     """Train and evaluate the LSTM model using a data generator."""
     candidate_hash = candidate.hash() # get the unique hash for the candidate
 
-    Log.info(f"[{candidate_hash}] Starting Training")
+    Log.debug(f"[{candidate_hash}] Starting Training")
 
     # create the candidate directory if it does not exist
     if not os.path.exists(constants.candidate_out_dir(candidate_hash)) and save:
@@ -69,9 +69,8 @@ def train(
     )
 
     # training callbacks
-    callbacks = [
-        EarlyStopping(monitor='val_loss', patience=candidate.hyperparameters.training.early_stopping_patience, restore_best_weights=True),
-        TensorBoard(log_dir=constants.tensorboard_log_dir, histogram_freq=1)
+    callbacks: list = [
+        EarlyStopping(monitor='val_loss', patience=candidate.hyperparameters.training.early_stopping_patience, restore_best_weights=True)
     ]
 
     if save: # only save checkpoints if specified
@@ -83,8 +82,6 @@ def train(
     train_steps_per_epoch = train_windows // candidate.hyperparameters.training.batch_size
     val_steps_per_epoch = (preprocessor.compute_dataset_windows("val") // candidate.hyperparameters.training.batch_size) if not train_on_val else None
 
-    Log.debug(f"[{candidate_hash}] Training on {train_windows} training windows, {train_steps_per_epoch} steps per epoch")
-
     # train the model with callbacks and save the training history
     history = model.fit(
         preprocessor.generator('train&val' if train_on_val else 'train'),
@@ -94,12 +91,12 @@ def train(
         validation_steps=val_steps_per_epoch,
         epochs=candidate.hyperparameters.training.epochs,
         callbacks=callbacks,
-        verbose=verbose
+        verbose=cast(str, verbose) #/ could be int or str, but Keras expects a string for verbosity
     )
 
     # save training history only if specified and not training on validation data
     if save and not train_on_val:
         pd.DataFrame(history.history).to_pickle(os.path.join(constants.candidate_out_dir(candidate_hash), "history.pkl"))
 
-    Log.info(f"[{candidate_hash}] Training completed successfully")
+    Log.debug(f"[{candidate_hash}] Training completed successfully")
     return model, history.history

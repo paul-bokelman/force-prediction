@@ -6,8 +6,9 @@ import pandas as pd
 import numpy as np
 from sklearn.metrics import r2_score
 from globals.utils import Log
+from optimization import params
 from processing.processors import Preprocessor
-from prediction import models, tuning
+from prediction import models
 from analysis import plotting
 import prediction.constants
 import processing.constants
@@ -23,7 +24,7 @@ def save(hash: str, metrics: dict[str, list[float]]) -> None:
     pd.DataFrame(metrics, index=[0]).to_pickle(get_metrics_path(hash))
     Log.info(f"Saved metrics for '{hash}'")
 
-def predict_by_index(candidate: tuning.ModelCandidate, row_index: int) -> None:
+def predict_by_index(candidate: params.ModelCandidate, row_index: int) -> None:
     """Predict the force sequence for a specific row index in the preprocessed dataset."""
     candidate_hash = candidate.hash()
 
@@ -53,7 +54,7 @@ def predict_by_index(candidate: tuning.ModelCandidate, row_index: int) -> None:
         predicted_force=predicted_force,
     )
 
-def export_all_predictions(candidate: tuning.ModelCandidate) -> None:
+def export_all_predictions(candidate: params.ModelCandidate) -> None:
     """Export all predictions for the given candidate to png files within the candidate's output directory."""
     candidate_hash = candidate.hash()
 
@@ -89,7 +90,7 @@ def export_all_predictions(candidate: tuning.ModelCandidate) -> None:
             export_path=os.path.join(predictions_export_dir, f"pred{row_index}.png")
         )
 
-def generate_report(candidate: tuning.ModelCandidate) -> None:
+def generate_report(candidate: params.ModelCandidate) -> None:
     """Generate a json report for the given candidate, including metrics and plots. Report is visualized in the web interface."""
     candidate_hash = candidate.hash()
     model = models.obtain(candidate_hash)

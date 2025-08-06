@@ -21,6 +21,6 @@ min_spike_interval = 33 # minimum amount of time between spikes in milliseconds
 # ------------------------------- preprocessing ------------------------------ #
 preprocessed_dataset_path = lambda identifier: f"{data_dir}/preprocessed/{identifier}.pkl" # path to a specific preprocessed dataset file
 
-bin_size = int(constants.sampling_frequency * 0.01) # bin size for binning the neuron data (2048 -> 1 second -> 1000ms*0.01 = 10ms)
+bin_size = int(constants.sampling_frequency / 100) # bin size for binning the neuron data (2048 -> 1 second -> 1000ms*0.01 = 10ms)
 exponential_decay_lifetime = 20 # memory decay rate for neuronal spike data (in milliseconds), 20 -> signal gone in 20ms
 size_amplification_factor = 0.3 # amplification factor for increasing neuron size (based on first activation) ln(x)^fac

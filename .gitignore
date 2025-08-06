@@ -16,3 +16,5 @@ temp.md
 notes
 tasks.md
 analysis/view/src/data/*
+optimization/out/solutions/*
+optimization/out/cache/*

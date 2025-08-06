@@ -1,6 +1,6 @@
 from typing import Literal, cast
 from processing.types import DataGenerator
-from prediction.tuning import Hyperparameters
+from optimization.params import Hyperparameters
 import os
 import numpy as np
 import pandas as pd
@@ -29,6 +29,7 @@ class Preprocessor:
         self.bin_size = hyperparameters.preprocessing.bin_size
         self.exponential_decay_lifetime = hyperparameters.preprocessing.exponential_decay_lifetime
         self.size_amplification_factor = hyperparameters.preprocessing.size_amplification_factor
+
 
     @staticmethod
     def _bin_spikes(trains: np.ndarray , bin_size: int = constants.bin_size) -> np.ndarray:
@@ -147,9 +148,9 @@ class Preprocessor:
         """Preprocess the sanitized data in the following ways: bin, apply exponential decay filter, and normalize spike trains, down-sample and normalize force and include MVC as a feature"""
         # already processed and no overwrite -> skip
         if self.previously_preprocessed and not overwrite:
-            return Log.info(f"[{self.hash}] Preprocessed data already exists")
+            return Log.debug(f"[{self.hash}] Preprocessed data already exists")
         
-        Log.info(f"[{self.hash}] Preprocessing data...")
+        Log.debug(f"[{self.hash}] Preprocessing data...")
         
         data = get_dataframe(constants.dataset_path)  # ensure the original dataset is loaded
         subject_mappings = get_subject_mappings()
@@ -191,7 +192,7 @@ class Preprocessor:
         preprocessed_df.to_pickle(constants.preprocessed_dataset_path(self.hash))
 
         self.df = preprocessed_df  # update the internal dataframe
-        Log.info(f"[{self.hash}] Preprocessing complete")
+        Log.debug(f"[{self.hash}] Preprocessing complete")
     
     def get_generators(self) -> tuple[DataGenerator, DataGenerator, DataGenerator, DataGenerator]:
         """Returns all generators in the order: train, train&val, val, test"""

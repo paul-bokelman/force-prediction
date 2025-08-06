@@ -2,13 +2,14 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # suppress all tf except fatal errors
 
-from prediction import models, tuning
+from prediction import models
 from processing import processors
 from analysis import metrics
+import optimization.constants
 from globals.utils import Log
 
 # train, evaluate, and measure all candidate models
-for candidate in tuning.candidates:
+for candidate in optimization.constants.candidates:
     candidate_hash = candidate.hash()
 
     # skip candidates that have already been computed
