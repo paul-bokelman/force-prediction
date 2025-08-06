@@ -22,7 +22,14 @@ for candidate in tuning.candidates:
     
     # train the model based on it's configuration if it does not exist
     if not model:
-        model, history = models.train(preprocessor, candidate)
+        # train with validation for training history
+        model, history = models.train(preprocessor, candidate, train_on_val=False) 
+
+        # fully train on all data if specified in the candidate's hyperparameters
+        if candidate.hyperparameters.training.train_on_val:
+            Log.info(f"Training on validation set for candidate {candidate_hash}...")
+            model, _ = models.train(preprocessor, candidate, train_on_val=True)
+            
     else:
         Log.warn(f"Model {candidate_hash} already exists, skipping training...")
 

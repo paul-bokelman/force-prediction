@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 from prediction.types import LossFunction
 from dataclasses import dataclass, field
 import os
@@ -7,6 +7,7 @@ import json
 from keras._tf_keras.keras.layers import Layer, LSTM, Dense, Input, GRU, Bidirectional, TimeDistributed, Embedding, RepeatVector, Concatenate
 import prediction.constants
 import processing.constants
+import globals.constants
 
 losses: list[LossFunction] = ["mse", "mae", "huber"]
 
@@ -30,9 +31,10 @@ class TrainingHyperparameters:
     train_percentage: float = prediction.constants.train_percentage
     test_percentage: float = prediction.constants.test_percentage
     validation_percentage: float = prediction.constants.validation_percentage
-    subject_embedding_dimension: int = prediction.constants.subject_embedding_dimension
+    subject_embedding_dimension: int | None = prediction.constants.subject_embedding_dimension
     batch_size: int = prediction.constants.batch_size
     use_tensorboard: bool = True
+    train_on_val: bool = False
     loss: LossFunction = 'mse'
 
     def hash(self) -> str:
@@ -123,19 +125,26 @@ class Architecture:
         return Architecture.__dict__[identifier](units)
     
     @staticmethod
-    def construct(neural_input_shape: tuple[int,...], n_subjects: int, architecture: list[Layer], subject_embedding_dimension: int) -> tuple:
-        """Constructs the full model architecture."""
+    def construct(neural_input_shape: tuple[int,...], n_subjects: int, architecture: list[Layer], subject_embedding_dimension: Optional[int]) -> tuple:
+        """Constructs the full model architecture. If subject_embedding_dimension is provided, it adds an embedding layer for subjects."""
+        use_subject_embedding = subject_embedding_dimension is not None and n_subjects > 1
         sequence_length, features = neural_input_shape
         
         neural_input = Input(shape=(sequence_length, features), name='neural_input')
         subject_input = Input(shape=(), dtype='int8', name='subject_id') # scalar id per sample
 
-        # subject embedding layer
-        subject_embedding = Embedding(input_dim=n_subjects, output_dim=subject_embedding_dimension)(subject_input)
-        subject_embedding = RepeatVector(sequence_length)(subject_embedding)  # shape: (batch_size, seq_len, embedding_dim)
+        # optionally construct subject embedding layer
+        if use_subject_embedding:
+            # subject embedding layer
+            subject_embedding = Embedding(input_dim=n_subjects, output_dim=subject_embedding_dimension)(subject_input)
+            subject_embedding = RepeatVector(sequence_length)(subject_embedding)  # shape: (batch_size, seq_len, embedding_dim)
 
-        # concatenate embedding with neural input
-        x = Concatenate(axis=-1)([neural_input, subject_embedding])  # shape: (batch_size, seq_len, input_dim + embedding_dim)
+            # concatenate embedding with neural input
+            x = Concatenate(axis=-1)([neural_input, subject_embedding])  # shape: (batch_size, seq_len, input_dim + embedding_dim)
+            inputs = [neural_input, subject_input]
+        else:
+            x = neural_input
+            inputs = [neural_input]
 
         # apply the architecture layers
         for layer in architecture:
@@ -143,8 +152,7 @@ class Architecture:
             x = layer(x)
 
         output = TimeDistributed(Dense(1))(x)
-
-        return [neural_input, subject_input], output
+        return inputs, output #/ subject input does nothing when not using subject embeddings
     
     @staticmethod
     def hash(architecture: list[Layer]) -> str:
@@ -158,43 +166,60 @@ class Architecture:
         return ' -> '.join([f"{layer.__class__.__name__.lower()}({layer.units})" for layer in architecture])
     
 candidates: list['ModelCandidate'] = [
-    ModelCandidate(architecture=Architecture.LSTM(units=32)),
-    ModelCandidate(architecture=Architecture.LSTM(units=64)),
-    ModelCandidate(architecture=Architecture.LSTM(units=128)),
-    ModelCandidate(
-        architecture=Architecture.LSTM(units=32),
-        hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(sequence_length=100, stride=50)
-        )
-    ),
-    ModelCandidate(
-        architecture=Architecture.LSTM(units=32),
-        hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(subject_embedding_dimension=16)
-        )
-    ),
-    ModelCandidate(
-        architecture=Architecture.LSTM(units=32),
-        hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(subject_embedding_dimension=32)
-        )
-    ),
     ModelCandidate(
         architecture=Architecture.LSTM(units=16),
         hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(sequence_length=100, stride=50, subject_embedding_dimension=16)
+            training=TrainingHyperparameters(subject_embedding_dimension=6, train_on_val=True),
+            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
+        )
+    ),
+    ModelCandidate(
+        architecture=Architecture.LSTM(units=32),
+        hyperparameters=Hyperparameters(
+            training=TrainingHyperparameters(subject_embedding_dimension=2, train_on_val=True),
+            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
+        )
+    ),
+    ModelCandidate(
+        architecture=Architecture.LSTM(units=8),
+        hyperparameters=Hyperparameters(
+            training=TrainingHyperparameters(subject_embedding_dimension=8, train_on_val=True),
+            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
+        )
+    ),
+    ModelCandidate(
+        architecture=Architecture.LSTM(units=32),
+        hyperparameters=Hyperparameters(
+            training=TrainingHyperparameters(subject_embedding_dimension=4, train_on_val=False),
+            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
+        )
+    ),
+    ModelCandidate(
+        architecture=Architecture.LSTM(units=40),
+        hyperparameters=Hyperparameters(
+            training=TrainingHyperparameters(subject_embedding_dimension=2, train_on_val=False),
+            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
         )
     ),
     ModelCandidate(
         architecture=Architecture.LSTM(units=64),
         hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(sequence_length=400, stride=200)
+            training=TrainingHyperparameters(subject_embedding_dimension=2, train_on_val=False),
+            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
         )
     ),
     ModelCandidate(
-        architecture=Architecture.LSTM(units=64),
+        architecture=Architecture.LSTM(units=42),
         hyperparameters=Hyperparameters(
-            training=TrainingHyperparameters(sequence_length=100, stride=10)
+            training=TrainingHyperparameters(subject_embedding_dimension=4, train_on_val=False),
+            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
+        )
+    ),
+    ModelCandidate(
+        architecture=Architecture.LSTM(units=32),
+        hyperparameters=Hyperparameters(
+            training=TrainingHyperparameters(subject_embedding_dimension=6, train_on_val=False),
+            preprocessing=PreprocessingHyperparameters(size_amplification_factor=0.8)
         )
     ),
 ]

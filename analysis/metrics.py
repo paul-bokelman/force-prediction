@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 from sklearn.metrics import r2_score
 from globals.utils import Log
+from processing.processors import Preprocessor
 from prediction import models, tuning
 from analysis import plotting
 import prediction.constants
@@ -112,7 +113,12 @@ def generate_report(candidate: tuning.ModelCandidate) -> None:
     # get the metrics and baseline metrics
     dataset = get_dataframe(processing.constants.dataset_path)
     metrics = get_dataframe(get_metrics_path(candidate_hash))
-    preprocessed_dataset = get_dataframe(processing.constants.preprocessed_dataset_path(candidate.hyperparameters.preprocessing.hash()))
+
+    preprocessed_dataset = Preprocessor.split_dataset(
+        hash=candidate.hyperparameters.preprocessing.hash(),
+        df=get_dataframe(processing.constants.preprocessed_dataset_path(candidate.hyperparameters.preprocessing.hash())),
+        dataset_id="test"
+    )
     baseline_metrics = preprocessed_dataset.attrs
 
     # compile evaluation metrics
@@ -131,15 +137,8 @@ def generate_report(candidate: tuning.ModelCandidate) -> None:
 
     plots = Plots(
         training_history="",
-        metrics=MetricsPlot(
-            data_volume="",
-            number_of_neurons="",
-        ),
-        predictions=PredictionsPlot(
-            best="",
-            average="",
-            worst=""
-        )
+        metrics=MetricsPlot(data_volume="", number_of_neurons=""),
+        predictions=PredictionsPlot(best="", average="", worst="")
     )
 
     # construct training history plot
@@ -180,24 +179,6 @@ def generate_report(candidate: tuning.ModelCandidate) -> None:
     # find best, worst, and average predictions
     scores = np.array([result["score"] for result in all_predictions])
 
-    # Remove outliers from scores using IQR method
-    Q1 = np.quantile(scores, 0.25)
-    Q3 = np.quantile(scores, 0.75)
-    IQR = Q3 - Q1
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
-    filtered_indices = np.where((scores >= lower_bound) & (scores <= upper_bound))[0]
-
-    # Print outliers
-    outlier_indices = np.where((scores < lower_bound) | (scores > upper_bound))[0]
-    if len(outlier_indices) > 0:
-        print("Outlier indices:", outlier_indices)
-        print("Outlier scores:", scores[outlier_indices])
-
-    # Remove outliers from all_predictions
-    all_predictions = [all_predictions[i] for i in filtered_indices]
-    scores = scores[filtered_indices]
-
     baseline_r2 = baseline_metrics["baseline_r2"]
     best_idx, worst_idx, avg_idx = int(np.argmax(scores)), int(np.argmin(scores)), int(np.argmin(np.abs(scores - baseline_r2)))
 
@@ -223,10 +204,5 @@ def generate_report(candidate: tuning.ModelCandidate) -> None:
     # export the report to a JSON file in the views directory
     with open(os.path.join(analysis.constants.views_candidates_dir, f"{candidate_hash}.json"), "w") as f:
         json.dump(candidate_report, f)
-
-    # update the views registry to reflect the new report
-    reports = [r for r in os.listdir(analysis.constants.views_candidates_dir) if r.endswith(".json")]
-    with open(analysis.constants.views_registry_path, "w") as f:
-        json.dump(reports, f)
 
     Log.success(f"Generated and exported report for candidate '{candidate_hash}'")

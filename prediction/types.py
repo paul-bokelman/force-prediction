@@ -3,6 +3,7 @@ import processing.constants
 import json
 import hashlib
 import dataclasses
+import numpy as np
 
 # ---------------------------------- models ---------------------------------- #
 
@@ -61,6 +62,7 @@ class Genes:
         string_representation = json.dumps(vars(self), sort_keys=True)
         return hashlib.sha256(string_representation.encode()).hexdigest()[:10]
 
+    # todo: remove -> possibly unused after migration
     @staticmethod
     def from_dict(data: dict[str, str | int]):
         """Construct a Genes instance from a dictionary, ensuring all properties exist and are cast."""
@@ -90,4 +92,27 @@ class Genes:
             exponential_decay_lifetime=cast(int, data["exponential_decay_lifetime"]),
             size_amplification_factor=cast(int, data["size_amplification_factor"]),
             loss=cast(LossFunction, data["loss"]),
+        )
+    
+    @staticmethod
+    def from_array(array: np.ndarray) -> 'Genes':
+        """Construct a Genes instance from an array, ensuring all properties exist and are cast."""
+        from prediction import constants
+        if len(array) != 9:
+            raise ValueError("Array must have exactly 9 elements corresponding to all genes.")
+        
+        # categorical genes must be selected from the state space
+        architecture_identifier: ArchitectureIdentifier = constants.gene_state_space.architecture_identifier[int(array[0])]
+        loss_function: LossFunction = constants.gene_state_space.loss[int(array[8])]
+
+        return Genes(
+            architecture_identifier=architecture_identifier,
+            units=cast(int, array[1]),
+            subject_embedding_dimension=cast(int, array[2]),
+            sequence_length=cast(int, array[3]),
+            stride_divisor=cast(int, array[4]),
+            bin_size_divisor=cast(int, array[5]),
+            exponential_decay_lifetime=cast(int, array[6]),
+            size_amplification_factor=cast(int, array[7]),
+            loss=loss_function
         )

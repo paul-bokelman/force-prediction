@@ -80,8 +80,11 @@ def visualize_trial(
     force_data = cast(pd.Series, trial)["force_data"] if force_data is None else force_data
     neuron_data = cast(pd.Series, trial)["neuron_data"].copy() if neuron_data is None else neuron_data
 
+    assert neuron_data is not None, "Neuron data must be provided either directly or through the DataFrame."
+    assert force_data is not None, "Force data must be provided either directly or through the DataFrame."
+
     # remove all rows with no activations from neuron_data
-    if neuron_data is not None and neuron_data.ndim > 1:
+    if neuron_data.ndim > 1:
         neuron_data = neuron_data[~np.all(neuron_data == 0, axis=1)]
 
     def plot_force_only(force_data: np.ndarray, time_values: np.ndarray) -> None:
@@ -228,7 +231,7 @@ def visualize_number_of_neurons_impact(
     dark_mode: bool = False):
     """Visualize the impact of varying number of neurons on model performance as a histogram."""
 
-    # Extract neuron counts and scores from predictions
+    # extract neuron counts and scores from predictions
     neuron_counts = np.array([
         dataset.iloc[index]["neuron_data"].shape[0] if isinstance(dataset.iloc[index]["neuron_data"], np.ndarray) else 0
         for index, _ in predictions
@@ -242,6 +245,9 @@ def visualize_number_of_neurons_impact(
         scores[neuron_counts == n].mean() if np.any(neuron_counts == n) else 0
         for n in neuron_nums
     ])
+    counts_per_bin = np.array([
+        np.count_nonzero(neuron_counts == n) for n in neuron_nums
+    ])
 
     if dark_mode:
         plt.style.use('dark_background')
@@ -254,8 +260,13 @@ def visualize_number_of_neurons_impact(
         ax.set_facecolor('#161616')
     ax.set_title("Impact of Number of Neurons on Model Performance")
     ax.set_xlabel("Number of Neurons")
-    ax.set_ylabel("Average Performance Metric (e.g., R² Score)")
-    ax.bar(neuron_nums, mean_scores, color='skyblue')
+    ax.set_ylabel("Average Performance Metric (R² Score)")
+    ax.grid(axis='y', alpha=0.25)
+    bar = ax.bar(neuron_nums, mean_scores, color='#f0ebd8')
+
+    bar_labels = [f"{count} ({score:.2f})" if count > 0 else "" for count, score in zip(counts_per_bin, mean_scores)]
+    ax.bar_label(bar, labels=bar_labels, padding=2, fontsize=10, color='black' if not dark_mode else '#f0ebd8')
+
     if export_path:
         plt.savefig(export_path)
     if encode:
@@ -276,19 +287,38 @@ def visualize_data_volume_impact(
     else:
         plt.style.use('default')
 
-    data_densities, performance_metrics = zip(*[
-        (np.count_nonzero(dataset.iloc[i]['neuron_data'] == 1) / len(dataset.iloc[i]['neuron_data'].reshape(-1)), score)
+    data_point_counts, performance_metrics = zip(*[
+        (len(dataset.iloc[i]['neuron_data'].reshape(-1)), score)
         for i, score in predictions
-    ]) if predictions else ([], [])
+    ])
+    
+    data_point_counts = np.array(data_point_counts)
+    performance_metrics = np.array(performance_metrics)
+
+    bins = np.linspace(np.min(data_point_counts), np.max(data_point_counts), 8)
+    bin_indices = np.digitize(data_point_counts, bins) - 1
+
+    binned_values = [performance_metrics[bin_indices == i] if np.any(bin_indices == i) else np.nan for i in range(len(bins)-1)]
+    bin_means = np.array([np.nanmean(values) if isinstance(values, np.ndarray) and values.size > 0 else np.nan for values in binned_values])
+    bin_counts = [len(values) if isinstance(values, np.ndarray) else 0 for values in binned_values]
+
+    bin_centers = 0.5 * (bins[:-1] + bins[1:])
+
+    bar_labels = [
+        f"{count} ({mean:.2f})" if count > 0 else ""
+        for count, mean in zip(bin_counts, bin_means)
+    ]
     
     _, ax = plt.subplots(figsize=(14, 5))
     if dark_mode:
         plt.gcf().patch.set_facecolor('#161616')
     ax.set_facecolor('#161616')
-    ax.set_title("Impact of Neuronal Activation Density on Model Performance")
-    ax.set_xlabel("Activation Density (Fraction of Active Neurons)")
-    ax.set_ylabel("Performance Metric (e.g., R² Score)")
-    ax.hist(data_densities, weights=performance_metrics, bins=len(set(data_densities)), color='salmon', edgecolor='black')
+    ax.set_title("Impact of Neuronal Volume on Model Performance")
+    ax.set_xlabel("Data Point Count (Number of Neuronal Activations)")
+    ax.set_ylabel("Average Performance Metric (R² Score)")
+    ax.grid(axis='y', alpha=0.25)
+    bar = ax.bar(bin_centers, bin_means, width=np.diff(bins), color="#FF6900", edgecolor="black")
+    ax.bar_label(bar, labels=bar_labels, padding=2, fontsize=10, color='black' if not dark_mode else 'white')
     if export_path:
         plt.savefig(export_path)
     if encode:

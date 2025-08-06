@@ -9,15 +9,17 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from numpy.lib.stride_tricks import sliding_window_view
 from globals.utils import Log
 from processing import constants
+import prediction.constants
 from processing.utils import get_subject_mappings, get_dataframe
 
-type DatasetId = Literal['train', 'val', 'test']
+type DatasetId = Literal['train', 'val', 'train&val', 'test']
 
 class Preprocessor:
     def __init__(self, hyperparameters: Hyperparameters) -> None:
         self.hash = hyperparameters.preprocessing.hash() # get the hash associated with the preprocessing parameters
         self.df = get_dataframe(constants.preprocessed_dataset_path(self.hash))
 
+        self.use_subject_embeddings = hyperparameters.training.subject_embedding_dimension is not None
         self.sequence_length = hyperparameters.training.sequence_length
         self.stride = hyperparameters.training.stride
         self.train_percentage = hyperparameters.training.train_percentage
@@ -191,22 +193,44 @@ class Preprocessor:
         self.df = preprocessed_df  # update the internal dataframe
         Log.info(f"[{self.hash}] Preprocessing complete")
     
-    def get_generators(self) -> tuple[DataGenerator, DataGenerator, DataGenerator]:
-        """Returns all generators in the order: train, val, test"""
-        return (self.generator('train'), self.generator('val'), self.generator('test'))
+    def get_generators(self) -> tuple[DataGenerator, DataGenerator, DataGenerator, DataGenerator]:
+        """Returns all generators in the order: train, train&val, val, test"""
+        return (self.generator('train'), self.generator('train&val'), self.generator('val'), self.generator('test'))
     
     def _get_dataset(self, dataset_id: DatasetId) -> pd.DataFrame:
         """Returns the dataset for the given dataset_id."""
         assert self.previously_preprocessed, "Data must be preprocessed before accessing dataset"
+        df = self.shuffled_dataset(self.hash, self.df)
 
         # perform splits at the trial level
-        total_entries = len(self.df)
+        total_entries = len(df)
         self.train_end = int(self.train_percentage * total_entries)
         self.val_end = self.train_end + int(self.validation_percentage * total_entries)
 
-        return self.df[:self.train_end] if dataset_id == 'train' else \
-               self.df[self.train_end:self.val_end] if dataset_id == 'val' else \
-               self.df[self.val_end:]
+        return df[:self.train_end] if dataset_id == 'train' else \
+               df[:self.val_end] if dataset_id == 'train&val' else \
+               df[self.train_end:self.val_end] if dataset_id == 'val' else \
+               df[self.val_end:]
+    
+    @staticmethod
+    def shuffled_dataset(hash: str, df: pd.DataFrame) -> pd.DataFrame:
+        """Shuffles the dataset and returns it."""
+        return df.sample(frac=1, random_state=int(hash[:8], 16)).reset_index(drop=True)
+    
+    @staticmethod
+    def split_dataset(hash: str, df: pd.DataFrame, dataset_id: DatasetId) -> pd.DataFrame:
+        """Splits the dataset into train, validation, and test sets based on the dataset_id."""
+        assert dataset_id in ['train', 'train&val', 'val', 'test'], "Invalid dataset_id. Must be one of: 'train', 'train&val', 'val', 'test'."
+        df = Preprocessor.shuffled_dataset(hash, df)  # shuffle the dataset by hash before splitting
+        
+        total_entries = len(df)
+        train_end = int(prediction.constants.train_percentage * total_entries)
+        val_end = train_end + int(prediction.constants.validation_percentage * total_entries)
+
+        return df[:train_end] if dataset_id == 'train' else \
+               df[:val_end] if dataset_id == 'train&val' else \
+               df[train_end:val_end] if dataset_id == 'val' else \
+               df[val_end:]
     
     def compute_dataset_windows(self, dataset_id: DatasetId) -> int:
         dataset = self._get_dataset(dataset_id)

@@ -4,49 +4,32 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Label } from "@/components/ui/label";
 import { PropertiesList, Divider, PropertiesWithImprovementList } from "@/components";
 
+// import all .json files under src/data/candidates at build time
+const modules = import.meta.glob("./data/candidates/*.json", { eager: true });
+
+// build a map of filename -> parsed JSON
+const candidateMap: Record<string, CandidateReport> = Object.fromEntries(
+  Object.entries(modules).map(([path, mod]) => {
+    const fileName = path.split("/").pop()!;
+    return [fileName, mod as CandidateReport];
+  })
+);
+
+const candidateFiles = Object.keys(candidateMap);
+
 function App() {
-  const [files, setFiles] = React.useState<string[]>([]);
   const [selectedFile, setSelectedFile] = React.useState<string | null>(null);
   const [data, setData] = React.useState<CandidateReport | null>(null);
 
-  const fetchRegistry = async () => {
-    try {
-      const res = await fetch("/registry.json");
-      const fileList = await res.json();
-      setFiles(fileList);
-      return fileList;
-    } catch (err) {
-      console.error("Could not list files:", err);
-    }
-  };
-
-  const fetchCandidate = async (fileName: string) => {
-    try {
-      const res = await fetch(`/candidates/${fileName}`);
-      const json = await res.json();
-      setData(json);
-    } catch (err) {
-      setData(null);
-      console.error("Could not import data:", err);
-    }
-  };
-
-  // List files in public directory (simulate with fetch to an API endpoint)
   React.useEffect(() => {
-    (async () => {
-      const fileList = await fetchRegistry();
-      if (fileList && fileList.length > 0) {
-        setSelectedFile(fileList[0]);
-      }
-    })();
+    if (candidateFiles.length > 0) {
+      setSelectedFile(candidateFiles[0]);
+    }
   }, []);
 
-  // Import selected file
   React.useEffect(() => {
     if (!selectedFile) return;
-    (async () => {
-      await fetchCandidate(selectedFile);
-    })();
+    setData(candidateMap[selectedFile]);
   }, [selectedFile]);
 
   if (!data) {
@@ -69,7 +52,7 @@ function App() {
             <SelectValue placeholder="-- Select file --" />
           </SelectTrigger>
           <SelectContent>
-            {files.map((file) => (
+            {candidateFiles.map((file) => (
               <SelectItem key={file} value={file}>
                 {file.replace(/\.json$/, "")}
               </SelectItem>
@@ -106,17 +89,15 @@ function App() {
       <Divider />
       <div className="flex flex-col gap-2">
         {Object.entries(data.plots.predictions).map(([, value]) => (
-          <img src={`data:image/png;base64,${value}`} className="w-full h-auto rounded-md" />
+          <img key={value} src={`data:image/png;base64,${value}`} className="w-full h-auto rounded-md" />
         ))}
       </div>
       <Divider />
       <div className="flex flex-col gap-2">
         {Object.entries(data.plots.metrics).map(([, value]) => (
-          <img src={`data:image/png;base64,${value}`} className="w-full h-auto rounded-md" />
+          <img key={value} src={`data:image/png;base64,${value}`} className="w-full h-auto rounded-md" />
         ))}
       </div>
-
-      {/* <div>{data ? <pre>{JSON.stringify(data, null, 2)}</pre> : selectedFile ? <p>Loading data...</p> : null}</div> */}
     </div>
   );
 }

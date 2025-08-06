@@ -7,9 +7,9 @@ candidate_out_dir = lambda hash: f"{output_dir}/{hash}"
 
 # ---------------------------------- models ---------------------------------- #
 
-epochs = 1 # number of training epochs
+epochs = 30 # number of training epochs
 batch_size = 32 # batch size for training
-early_stopping_patience = 3 # patience for early stopping callback during training
+early_stopping_patience = 5 # patience for early stopping callback during training
 
 subject_embedding_dimension = 8 # dimension of the subject embedding layer
 sequence_length = 200 # length of the sliding window for preprocessing
@@ -32,7 +32,7 @@ genome_save_dir = f"prediction/out/genomes/" # directory for saving genome files
 gene_state_space = GeneStateSpace(
     # ---------------------------------- general --------------------------------- #
     architecture_identifier = ["LSTM", "DualLSTM"], # single lstm or stacked lstm architecture (same units for both layers)
-    units= StateSpaceRange(start=16, end=256, step=16), # range of units for LSTM layers
+    units= StateSpaceRange(start=4, end=256, step=4), # range of units for LSTM layers
     # ------------------------------- preprocessing ------------------------------ #
     bin_size_divisor = StateSpaceRange(start=50, end=200, step=50), # proportion of sampling frequency, 0 means no binning
     exponential_decay_lifetime = StateSpaceRange(start=0, end=40, step=5), # measured in milliseconds, 0 means instant decay

@@ -37,7 +37,13 @@ def obtain(hash: str) -> ModifiedModel | None:
     if os.path.exists(weights_path):
         return cast(ModifiedModel, load_model(weights_path))
 
-def train(preprocessor: Preprocessor, candidate: ModelCandidate, save: bool = True, verbose: str = "auto") -> tuple[ModifiedModel, dict[str, list[float]]]:
+def train(
+        preprocessor: Preprocessor, 
+        candidate: ModelCandidate, 
+        save: bool = True, 
+        train_on_val: bool = False,
+        verbose: str = "auto"
+    ) -> tuple[ModifiedModel, dict[str, list[float]]]:
     """Train and evaluate the LSTM model using a data generator."""
     candidate_hash = candidate.hash() # get the unique hash for the candidate
 
@@ -50,7 +56,7 @@ def train(preprocessor: Preprocessor, candidate: ModelCandidate, save: bool = Tr
     # construct the model architecture
     inputs, output = Architecture.construct(
         neural_input_shape=preprocessor.input_shape, 
-        n_subjects=len(get_subject_mappings()),
+        n_subjects=len(get_subject_mappings()), #/ unnecessary computation when not using subject embeddings
         architecture=candidate.architecture,
         subject_embedding_dimension=candidate.hyperparameters.training.subject_embedding_dimension
     )
@@ -73,24 +79,26 @@ def train(preprocessor: Preprocessor, candidate: ModelCandidate, save: bool = Tr
             ModelCheckpoint(get_weights_path(candidate_hash), save_best_only=True, monitor='val_loss')
         )
 
-    train_steps_per_epoch = preprocessor.compute_dataset_windows("train") // candidate.hyperparameters.training.batch_size
-    val_steps_per_epoch = preprocessor.compute_dataset_windows("val") // candidate.hyperparameters.training.batch_size
+    train_windows = preprocessor.compute_dataset_windows("train&val" if train_on_val else "train")
+    train_steps_per_epoch = train_windows // candidate.hyperparameters.training.batch_size
+    val_steps_per_epoch = (preprocessor.compute_dataset_windows("val") // candidate.hyperparameters.training.batch_size) if not train_on_val else None
 
-    Log.debug(f"Training steps per epoch: {train_steps_per_epoch}, Validation steps per epoch: {val_steps_per_epoch}")
+    Log.debug(f"[{candidate_hash}] Training on {train_windows} training windows, {train_steps_per_epoch} steps per epoch")
 
     # train the model with callbacks and save the training history
     history = model.fit(
-        preprocessor.generator('train'),
+        preprocessor.generator('train&val' if train_on_val else 'train'),
         steps_per_epoch=train_steps_per_epoch,
         batch_size=candidate.hyperparameters.training.batch_size,
-        validation_data=preprocessor.generator('val'),
+        validation_data=None if train_on_val else preprocessor.generator('val'),
         validation_steps=val_steps_per_epoch,
         epochs=candidate.hyperparameters.training.epochs,
         callbacks=callbacks,
         verbose=verbose
     )
 
-    if save: # save training history only if specified
+    # save training history only if specified and not training on validation data
+    if save and not train_on_val:
         pd.DataFrame(history.history).to_pickle(os.path.join(constants.candidate_out_dir(candidate_hash), "history.pkl"))
 
     Log.info(f"[{candidate_hash}] Training completed successfully")
