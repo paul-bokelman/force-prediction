@@ -11,7 +11,7 @@ from optimization.genetics.genes import Genes
 from globals.utils import Log
 from optimization import constants
 
-cache = Cache(constants.fitness_cache_dir)  # cache for fitness values of solutions
+cache = Cache(constants.fitness_cache_dir) # cache for fitness values of solutions
 
 def _save_solution(instance: pygad.GA, solution: np.ndarray, name: str) -> None:
     """Save the solution to a file in the respective solutions directory."""
